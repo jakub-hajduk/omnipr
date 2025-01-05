@@ -1,2 +1,3 @@
 # omnipr
-OmniPR creates pull requests across Git providers like GitHub, GitLab, Bitbucket, etc. It’s modular, provider-agnostic, and works in Node.js/browser.
+
+OmniPR provides a unified way to create pull requests across GitHub, GitLab, Bitbucket, Azure DevOps, and others. This modular package works in Node.js or the browser, offering seamless, extensible PR management for any Git provider.
