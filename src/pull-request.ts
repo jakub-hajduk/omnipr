@@ -1,43 +1,44 @@
-import type {
-  Change,
-  GitProvider,
-  GitProviderReturnType,
-  PullRequestOptions,
-} from './shared/types';
+import type { GitProvider, OmniPROptions } from './shared/types';
 
 export async function pullRequest(
-  provider: GitProvider,
-  options: PullRequestOptions,
-  files: Record<string, string>,
-): Promise<GitProviderReturnType> {
-  const changes: Change[] = [
-    {
-      files,
-      commit: options.commit,
-    },
-  ];
+  provider: GitProvider<any>,
+  options: OmniPROptions,
+) {
+  const setupResult = await provider.setup({
+    url: options.url,
+    token: options.token,
+  });
 
-  if (options.path) {
-    if (options.path.endsWith('/')) {
-      options.path = options.path.replace(/\/+$/, '');
-    }
-
-    for (const change of changes) {
-      change.files = Object.fromEntries(
-        Object.entries(change.files).map(([file, contents]) => [
-          `${options.path}/${file}`,
-          contents,
-        ]),
-      );
-    }
+  if (!setupResult) {
+    throw new Error(`Couldn't setup the connection to git provider.`);
   }
 
-  try {
-    return await provider({
-      ...options,
-      changes,
-    });
-  } catch (e) {
-    return e.error;
+  const prepareBranchesResult = await provider.prepareBranches({
+    sourceBranch: options.sourceBranch,
+    targetBranch: options.targetBranch,
+    resetSourceBranchIfExists: options.resetSourceBranchIfExists,
+  });
+
+  if (!prepareBranchesResult) {
+    throw new Error(`Couldn't setup branches.`);
+  }
+
+  const writeChanges = await provider.writeChanges({
+    path: options.path,
+    commitMessage: options.commitMessage,
+    changes: options.changes,
+  });
+
+  if (!writeChanges) {
+    throw new Error(`Couldn't write changes.`);
+  }
+
+  const createPullRequestResult = provider.createPullRequest({
+    title: options.title,
+    description: options.description,
+  });
+
+  if (!createPullRequestResult) {
+    throw new Error(`Couldn't create the Pull request!`);
   }
 }

@@ -1,24 +1,19 @@
-export interface Change {
-  files: Record<string, string>;
-  commit: string;
-}
+export type Change =
+  | string
+  | ((file: { exists: boolean; path: string; contents: string }) =>
+      | string
+      | null)
+  | null;
 
 export interface PullRequestOptions {
-  url: string;
-  token: string;
   title: string;
-  description: string;
-  path?: string;
-  commit: string;
-  branches: {
-    source: string;
-    target: string;
-  };
+  description?: string;
 }
 
-export interface GitProviderPullRequestOptions
-  extends Omit<PullRequestOptions, 'path' | 'commit'> {
-  changes: Change[];
+export interface BranchesOptions {
+  resetSourceBranchIfExists?: boolean;
+  sourceBranch: string;
+  targetBranch: string;
 }
 
 export interface GitProviderReturnType {
@@ -26,6 +21,42 @@ export interface GitProviderReturnType {
   message?: string;
 }
 
-export type GitProvider = (
-  options: GitProviderPullRequestOptions,
-) => Promise<any>;
+export interface TokenProviderOptions {
+  token: string;
+  url: string;
+}
+
+export interface PullRequestOptions {
+  title: string;
+  description?: string;
+}
+
+export interface WriteChangesOptions {
+  path?: string;
+  changes: Record<string, Change>;
+  commitMessage: string;
+}
+
+export interface ReadFilesOptions {
+  path?: string;
+  files?: string[];
+}
+
+export type OmniPROptions = BranchesOptions &
+  WriteChangesOptions &
+  PullRequestOptions &
+  TokenProviderOptions;
+
+export interface GitProvider<InitOptions> {
+  setup(options: InitOptions): Promise<boolean>;
+
+  prepareBranches(options: BranchesOptions): Promise<boolean>;
+
+  writeChanges(options: WriteChangesOptions): Promise<boolean>;
+
+  getFilesFromSourceBranch(
+    options: ReadFilesOptions,
+  ): Promise<Record<string, string>>;
+
+  createPullRequest(options: PullRequestOptions): Promise<boolean>;
+}

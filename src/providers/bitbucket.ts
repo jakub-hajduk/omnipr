@@ -1,126 +1,217 @@
-import { Bitbucket } from 'bitbucket';
 import type { Schema } from 'bitbucket';
-import { GitProviderError } from '../shared/git-provider-error';
+import type { KyInstance } from 'ky';
+import { normalizePath } from '../shared/normalize-path';
+import { httpClient } from '../shared/request';
 import type {
-  GitProviderPullRequestOptions,
-  GitProviderReturnType,
+  BranchesOptions,
+  GitProvider,
+  PullRequestOptions,
+  ReadFilesOptions,
+  WriteChangesOptions,
 } from '../shared/types';
 
-export async function bitbucket(
-  options: GitProviderPullRequestOptions,
-): Promise<GitProviderReturnType> {
-  const repoUrl = new URL(options.url);
-  const [owner, repo] = repoUrl.pathname.split('/').splice(1);
+type GetBranchData = Schema.Branch;
 
-  const bitbucket = new Bitbucket({
-    auth: {
-      token: options.token,
-    },
-  });
+type TreeEntries = Schema.PaginatedTreeentries;
 
-  let branch: Schema.Branch;
+export interface BitbucketAuthOptions {
+  token: string;
+  url: string;
+}
 
-  try {
+class BitbucketProvider implements GitProvider<BitbucketAuthOptions> {
+  private httpClient: KyInstance;
+  private sourceBranch: GetBranchData;
+  private targetBranch: GetBranchData;
+  private auth: BitbucketAuthOptions;
+
+  async setup(auth: BitbucketAuthOptions) {
+    this.auth = auth;
+    const repoUrl = new URL(this.auth.url);
+    const [workspace, slug] = repoUrl.pathname.split('/').splice(1);
+
+    this.httpClient = httpClient.extend({
+      prefixUrl: `https://api.bitbucket.org/2.0/repositories/${workspace}/${slug}`,
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${this.auth.token}`,
+      },
+    });
+
+    return true;
+  }
+
+  private async getBranch(branch: string): Promise<GetBranchData> {
     try {
-      branch = await bitbucket.refs
-        .getBranch({
-          workspace: owner,
-          repo_slug: repo,
-          name: options.branches.source,
-        })
-        .then((branch) => branch.data);
+      return await this.httpClient
+        .get<GetBranchData>(`refs/branches/${branch}`)
+        .json();
     } catch {
-      const targetHash = await bitbucket.repositories
-        .listRefs({
-          workspace: owner,
-          repo_slug: repo,
-        })
-        .then((response) => {
-          const branch = response.data.values.find(
-            (branch) => branch.name === options.branches.target,
-          );
-          if (!branch)
-            throw new Error(`Missing ${options.branches.target} branch`);
-          return branch.target.hash;
-        });
+      return;
+    }
+  }
 
-      branch = await bitbucket.refs
-        .createBranch({
-          workspace: owner,
-          repo_slug: repo,
-          _body: {
-            name: options.branches.source,
+  private async deleteSourceBranch(sourceBranch: string) {
+    try {
+      await this.httpClient.delete(`refs/branches/${sourceBranch}`).json();
+      this.sourceBranch = undefined;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  private async createSourceBranch(sourceBranch: string): Promise<boolean> {
+    try {
+      await this.httpClient
+        .post('refs/branches', {
+          json: {
+            name: sourceBranch,
             target: {
-              hash: targetHash,
+              hash: this.targetBranch.target.hash,
             },
           },
         })
-        .then((branch) => branch.data);
+        .json();
+      return true;
+    } catch (e) {
+      return false;
     }
-  } catch (e) {
-    throw new GitProviderError({
-      status: e.status,
-      message: e.error.error.message,
-    });
   }
 
-  if (!branch) return;
+  public async prepareBranches(options: BranchesOptions) {
+    try {
+      this.targetBranch = await this.getBranch(options.targetBranch);
 
-  for (const changeset of options.changes) {
+      const sourceBranch = await this.getBranch(options.sourceBranch);
+
+      if (sourceBranch && options.resetSourceBranchIfExists) {
+        await this.deleteSourceBranch(options.sourceBranch);
+        await this.createSourceBranch(options.sourceBranch);
+        this.sourceBranch = await this.getBranch(options.sourceBranch);
+        return true;
+      }
+
+      this.sourceBranch = sourceBranch;
+      if (sourceBranch) return true;
+
+      await this.createSourceBranch(options.sourceBranch);
+      this.sourceBranch = await this.getBranch(options.sourceBranch);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public async getFilesFromSourceBranch(
+    options?: ReadFilesOptions,
+  ): Promise<Record<string, string>> {
+    let path = '';
+    let filesToPick = options?.files;
+
+    if (options?.path) {
+      path = normalizePath(options.path);
+      filesToPick = options?.files?.map((file) => [path, file].join('/'));
+    }
+
+    const fileList = await this.httpClient
+      .get<TreeEntries>(`src/${this.sourceBranch.name}/${path}`, {
+        searchParams: {
+          pagelen: 100,
+          max_depth: 10,
+        },
+      })
+      .json();
+
+    let pickedFiles = fileList?.values?.filter((entry) => {
+      return entry.type === 'commit_file';
+    });
+
+    if (Array.isArray(filesToPick) && filesToPick.length > 0) {
+      pickedFiles = pickedFiles.filter((entry) =>
+        filesToPick.includes(entry.path),
+      );
+    }
+
+    const out = await Promise.all(
+      pickedFiles.map(async (entry) => {
+        const path = entry.path;
+        const content = await this.httpClient
+          .get(`src/${this.sourceBranch.name}/${path}`)
+          .text();
+
+        return [path, content];
+      }),
+    );
+
+    return Object.fromEntries(out);
+  }
+
+  public async writeChanges(options: WriteChangesOptions): Promise<boolean> {
+    const existingFiles = await this.getFilesFromSourceBranch({
+      path: options?.path,
+      files: Object.keys(options.changes),
+    });
+
     const data = new FormData();
 
-    for (const [file, content] of Object.entries(changeset.files)) {
-      data.append(file, content);
+    for (const [file, content] of Object.entries(options?.changes)) {
+      let fileContent = content;
+
+      if (typeof content === 'function') {
+        fileContent = content({
+          path: file,
+          exists: !!existingFiles[file],
+          contents: existingFiles[file],
+        });
+      }
+
+      if (fileContent === null) {
+        data.append('files', file);
+        continue;
+      }
+
+      data.append(file, String(fileContent));
     }
 
-    data.append('message', changeset.commit);
-    data.append('branch', branch.name);
+    data.append('message', options.commitMessage);
+    data.append('branch', this.sourceBranch.name);
 
-    const url = `https://api.bitbucket.org/2.0/repositories/${owner}/${repo}/src`;
     try {
-      await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${options.token}`,
-        },
-        body: data,
-      });
-    } catch (e) {
-      throw new GitProviderError({
-        status: e.status,
-        message: e.error.error.message,
-      });
+      const f = await this.httpClient
+        .post('src', {
+          body: data,
+        })
+        .json();
+      return true;
+    } catch {
+      return false;
     }
   }
 
-  try {
-    bitbucket.repositories.createPullRequest({
-      workspace: owner,
-      repo_slug: repo,
-      _body: {
-        type: 'PR',
-        description: options.description,
-        title: options.title,
-        destination: {
-          branch: {
-            name: options.branches.target,
+  async createPullRequest(options: PullRequestOptions): Promise<boolean> {
+    try {
+      await this.httpClient.post('pullrequests', {
+        json: {
+          title: options.title,
+          description: options.description,
+          source: {
+            branch: {
+              name: this.sourceBranch.name,
+            },
+          },
+          destination: {
+            branch: {
+              name: this.targetBranch.name,
+            },
           },
         },
-        source: {
-          branch: {
-            name: options.branches.source,
-          },
-        },
-      },
-    });
-  } catch (e) {
-    throw new GitProviderError({
-      status: e.status,
-      message: e.error.error.message,
-    });
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
-
-  return {
-    status: 200,
-  };
 }
+
+export const bitbucket = new BitbucketProvider();
