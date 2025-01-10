@@ -6,7 +6,7 @@
   "scripts": {
     "build": "pkgroll",
     "check": "biome check",
-    "fix": "biome fix"
+    "fix": "biome check --fix"
   },
   "author": {
     "name": "Jakub Hajduk",

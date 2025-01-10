@@ -1,22 +1,31 @@
 import type { GitProvider, OmniPROptions } from './shared/types';
 
-export async function pullRequest(
-  provider: GitProvider<any>,
-  options: OmniPROptions,
-) {
-  const setupResult = await provider.setup({
-    url: options.url,
-    token: options.token,
-  });
+export async function pullRequest<
+  Provider extends GitProvider<any>,
+  AuthOptions = Parameters<Provider['setup']>[0],
+>(provider: Provider, options: OmniPROptions & AuthOptions) {
+  const {
+    sourceBranch,
+    targetBranch,
+    resetSourceBranchIfExists,
+    path,
+    commitMessage,
+    changes,
+    title,
+    description,
+    ...auth
+  } = options;
+
+  const setupResult = await provider.setup(auth);
 
   if (!setupResult) {
     throw new Error(`Couldn't setup the connection to git provider.`);
   }
 
   const prepareBranchesResult = await provider.prepareBranches({
-    sourceBranch: options.sourceBranch,
-    targetBranch: options.targetBranch,
-    resetSourceBranchIfExists: options.resetSourceBranchIfExists,
+    sourceBranch,
+    targetBranch,
+    resetSourceBranchIfExists,
   });
 
   if (!prepareBranchesResult) {
@@ -24,9 +33,9 @@ export async function pullRequest(
   }
 
   const writeChanges = await provider.writeChanges({
-    path: options.path,
-    commitMessage: options.commitMessage,
-    changes: options.changes,
+    path,
+    commitMessage,
+    changes,
   });
 
   if (!writeChanges) {
@@ -34,8 +43,8 @@ export async function pullRequest(
   }
 
   const createPullRequestResult = provider.createPullRequest({
-    title: options.title,
-    description: options.description,
+    title,
+    description,
   });
 
   if (!createPullRequestResult) {

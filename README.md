@@ -1,3 +1,158 @@
-# omnipr
+# OmniPR: Unified pull request creation.
 
-OmniPR provides a unified way to create pull requests across GitHub, GitLab, Bitbucket, Azure DevOps, and others. This modular package works in Node.js or the browser, offering seamless, extensible PR management for any Git provider.
+OmniPR is a lightweight library that provides a unified API for interacting with popular Git providers like **GitHub**,
+**GitLab**, and **Bitbucket**. Whether you're committing files to a branch or creating pull requests, OmniPR simplifies
+these operations with a consistent interface, regardless of the provider.
+
+## Why OmniPR?
+
+### Unified and lightweight
+
+OmniPR does not rely on any official or unofficial SDKs provided by Git providers. Instead, it uses **direct HTTP REST
+API requests**. This approach keeps the library size minimal while ensuring a seamless and uniform experience across all
+supported providers.
+
+### One interface for all providers
+
+The core of OmniPR is the concept of **GitProviders**. Each GitProvider implements the same public interface, allowing
+you to interact with any provider without needing to learn different APIs. Whether you switch between GitHub, GitLab, or
+Bitbucket, your code stays the same.
+
+Each provider implements the same interface. To explore available methods, refer to
+the [API Documentation](#api-documentation).
+
+## Supported git providers
+
+- **GitHub**
+- **GitLab**
+- **Bitbucket**
+
+## Features
+
+- **Simple**: Package focuses on one particualr thing, not trying to solve all Git features.
+- **Unified API**: Perform Git operations like committing files and creating pull requests with a single, consistent
+  interface.
+- **Provider Agnostic**: Works with GitHub, GitLab, and Bitbucket (and potentially other providers) without requiring
+  specific SDKs.
+- **Lightweight**: Designed for efficiency, using raw HTTP REST API calls to avoid unnecessary overhead.
+
+## Installation
+
+Install OmniPR via npm:
+
+```bash
+npm install omnipr
+```
+
+## Usage
+
+```typescript
+import { pullRequest, github } from 'omnipr'
+
+// or:
+// import { pullRequest } from 'omnipr/pull-request'
+// import { github } from 'omnipr/github'
+
+await pullRequest(github, {
+  token: '<GITHUB_TOKEN>',
+  url: 'https://github.com/.../...',
+  
+  sourceBranch: 'update-settings',
+  targetBranch: 'main',
+  path: 'src/settings',
+  
+  changes: {
+    'config.json': '{ componentId: "1234:567" }'
+  },
+  commitMessage: 'Update component Id',
+  
+  title: 'External settings update',
+  description: 'PR created by OmniPR.'
+})
+```
+
+## Provider API
+
+### `setup()`
+
+Initializes the provider by setting up authentication and retrieving any necessary initial information.
+
+This method prepares the provider for use, allowing for customization through the provided options object.
+The exact configuration depends on the specific provider implementation.
+
+```typescript
+await provider.setup({
+  url: 'https://github.com/jakub-hajduk/omnipr',
+  token: '<TOKEN>'
+});
+```
+
+### `prepareBranches()`
+
+Prepares the source and target branches for the operation.
+
+This method ensures the specified branches are ready for use. If the `resetSourceBranchIfExists` option
+is enabled, the source branch will be deleted and recreated to ensure a clean state.
+
+```typescript
+await provider.prepareBranches({
+  sourceBranch: 'update-build-settings',
+  targetBranch: 'main',
+  resetSourceBranchIfExists: true
+});
+```
+
+### `getFilesFromSourceBranch()`
+
+Retrieves file contents from the source branch recursively.
+
+This method provides flexible options to fetch files based on the specified `path` and `files`.
+The behavior varies depending on the combination of options provided:
+
+- If `path` is specified, retrieves all files from the specified path.
+- If both `path` and `files` are specified, retrieves only the specified files from the given path.
+- If only `files` are specified, retrieves those files from their respective locations.
+- If neither `path` nor `files` are provided, retrieves all files from the root directory. _(Note: This can result in a
+  large response, potentially exceeding response limits.)_
+
+```typescript
+const files = await provider.getFilesFromSourceBranch({
+  path: 'src/settings',
+  files: ['manifest.yml', 'plugin.yml', 'dependencies.yml']
+});
+console.log(files);
+```
+
+### `writeChanges()`
+
+Writes changes to the repository.
+
+This method allows you to apply changes to the repository by specifying the files and their content.
+It supports writing changes to specific files or directories, providing flexibility for managing repository updates.
+
+```typescript
+await provider.writeChanges({
+  path: 'src/input',
+  changes: {
+    'data.json': '{version: "0.0.1"}'
+  }
+});
+```
+
+``
+
+### `createPullRequest()`
+
+Creates a pull request for the provider.
+
+This method initiates a pull request (PR) with the specified title and description.
+The exact behavior may depend on the provider implementation, including any default
+reviewers or branch policies.
+
+```typescript
+await provider.createPullRequest({
+  title: 'Settings update',
+  description: 'Settings update. PR automatically generated by OmniPR.'
+});
+```
+
