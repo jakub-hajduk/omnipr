@@ -2,14 +2,7 @@
   "name": "omnipr",
   "version": "0.0.1",
   "description": "OmniPR creates pull requests across Git providers like GitHub, GitLab, Bitbucket, etc. It’s modular, provider-agnostic, and works in Node.js/browser.",
-  "keywords": [
-    "pull request",
-    "pr",
-    "git",
-    "github",
-    "gitlab",
-    "bitbucket"
-  ],
+  "keywords": ["pull request", "pr", "git", "github", "gitlab", "bitbucket"],
   "scripts": {
     "build": "pkgroll",
     "check": "biome check",
@@ -41,9 +34,7 @@
     "url": "https://github.com/jakub-hajduk/omnipr.git"
   },
   "type": "module",
-  "files": [
-    "dist"
-  ],
+  "files": ["dist"],
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "exports": {
@@ -55,46 +46,6 @@
       "require": {
         "default": "./dist/index.cjs",
         "types": "./dist/index.d.cts"
-      }
-    },
-    "./pull-request": {
-      "import": {
-        "default": "./dist/pull-request.js",
-        "types": "./dist/pull-request.d.ts"
-      },
-      "require": {
-        "default": "./dist/pull-request.cjs",
-        "types": "./dist/pull-request.d.cts"
-      }
-    },
-    "./github": {
-      "import": {
-        "default": "./dist/providers/github.js",
-        "types": "./dist/providers/github.d.ts"
-      },
-      "require": {
-        "default": "./dist/providers/github.cjs",
-        "types": "./dist/providers/github.d.cts"
-      }
-    },
-    "./gitlab": {
-      "import": {
-        "default": "./dist/providers/gitlab.js",
-        "types": "./dist/providers/gitlab.d.ts"
-      },
-      "require": {
-        "default": "./dist/providers/gitlab.cjs",
-        "types": "./dist/providers/gitlab.d.cts"
-      }
-    },
-    "./bitbucket": {
-      "import": {
-        "default": "./dist/providers/bitbucket.js",
-        "types": "./dist/providers/bitbucket.d.ts"
-      },
-      "require": {
-        "default": "./dist/providers/bitbucket.cjs",
-        "types": "./dist/providers/bitbucket.d.cts"
       }
     }
   }
