@@ -21,20 +21,20 @@ export interface PullRequestOptions {
 }
 
 export interface CommitOptions {
-  branch: Branch;
+  branch: string;
   path?: string;
   changes: Record<string, string>;
   commitMessage: string;
 }
 
 export interface GetFileOptions {
-  branch: Branch;
+  branch: string;
   file: string;
   path?: string;
 }
 
 export interface GetFilesOptions {
-  branch: Branch;
+  branch: string;
   path?: string;
 }
 
@@ -45,6 +45,25 @@ export interface Branch {
   commit: {
     sha: string;
   };
+}
+
+export interface PullRequest {
+  title: string;
+  description: string;
+  sourceBranch: string;
+  targetBranch: string;
+  id: string;
+  link: string;
+}
+
+export interface Commit {
+  message: string;
+  sha: string;
+  author: {
+    name: string;
+    email: string;
+  };
+  date: string;
 }
 
 export function isObject(value: any): value is object {
@@ -100,7 +119,6 @@ export interface GitProvider<InitOptions> {
    * const newBranch = await provider.createBranch(mainBranch, 'feature-branch');
    */
   createBranch(from: string, name: string): Promise<Branch>;
-  createBranch(fromBranch: Branch, name: string): Promise<Branch>;
 
   /**
    * Deletes a branch by name or branch object.
@@ -115,7 +133,6 @@ export interface GitProvider<InitOptions> {
    * await provider.deleteBranch(featureBranch)
    */
   deleteBranch(name: string): Promise<void>;
-  deleteBranch(branch: Branch): Promise<void>;
 
   /**
    * Reads the contents of a file from a branch.
@@ -169,7 +186,7 @@ export interface GitProvider<InitOptions> {
    *   commitMessage: "Updated file.txt"
    * });
    */
-  commitToBranch(options: CommitOptions): Promise<void>;
+  commitToBranch(options: CommitOptions): Promise<Commit>;
 
   /**
    * Creates a pull request from a source branch to a target branch.
@@ -186,5 +203,9 @@ export interface GitProvider<InitOptions> {
    * });
    * console.log(prUrl);
    */
-  createPullRequest(options: PullRequestOptions): Promise<string>;
+  createPullRequest(options: PullRequestOptions): Promise<PullRequest>;
+
+  getBranches(): Promise<Branch[]>;
+  getPullRequests(): Promise<PullRequest[]>;
+  getCommits(branch: string): Promise<Commit[]>;
 }

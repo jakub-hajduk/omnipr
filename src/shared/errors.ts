@@ -1,4 +1,6 @@
 export class OmniPRError extends Error {
+  name = 'OmniPRError';
+
   constructor(
     public message: string,
     public details?: any,
@@ -11,26 +13,29 @@ export const errors = {
   couldntCreatePullRequest: (
     sourceBranch: string,
     targetBranch: string,
-    details: any,
+    details?: any,
   ) =>
     new OmniPRError(
       `Couldn't create or update pull request from "${sourceBranch}" to "${targetBranch}".`,
       details,
     ),
 
-  couldntWriteFiles: (branch: string, details: any) =>
+  couldntSetupConnection: (details?: any) =>
+    new OmniPRError(`Couldn't setup the connection to git provider`, details),
+
+  couldntWriteFiles: (branch: string, details?: any) =>
     new OmniPRError(`Couldn't write files on "${branch}" branch.`, details),
 
-  branchDoesNotExist: (branch: string, details: any) =>
+  branchDoesNotExist: (branch: string, details?: any) =>
     new OmniPRError(`Branch "${branch}" does not exist.`, details),
 
-  branchAlreadyExists: (branch: string, details: any) =>
+  branchAlreadyExists: (branch: string, details?: any) =>
     new OmniPRError(`Branch "${branch}" already exists.`, details),
 
-  couldntReadFiles: (branch: string, details: any) =>
+  couldntReadFiles: (branch: string, details?: any) =>
     new OmniPRError(`Couldn't read files from branch "${branch}"`, details),
 
-  couldntReadFileContents: (branch: string, file: string, details: any) =>
+  couldntReadFileContents: (branch: string, file: string, details?: any) =>
     new OmniPRError(
       `Couldn't read contents from "${file}" file from "${branch}".`,
       details,
@@ -38,4 +43,4 @@ export const errors = {
 
   temporary: (message: string, details?: any) =>
     new OmniPRError(`${message} (TODO: Support this error)`, details),
-};
+} as const;

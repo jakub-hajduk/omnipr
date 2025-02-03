@@ -2,10 +2,18 @@
   "name": "omnipr",
   "version": "0.0.1",
   "description": "OmniPR creates pull requests across Git providers like GitHub, GitLab, Bitbucket, etc. It’s modular, provider-agnostic, and works in Node.js/browser.",
-  "keywords": ["pull request", "pr", "git", "github", "gitlab", "bitbucket"],
+  "keywords": [
+    "pull request",
+    "pr",
+    "git",
+    "github",
+    "gitlab",
+    "bitbucket"
+  ],
   "scripts": {
     "build": "pkgroll",
     "check": "biome check",
+    "test": "tsx ./scripts/test-runner.ts",
     "fix": "biome check --fix",
     "release": "pnpm run fix && pnpm run build && changelogen --release --push --publish"
   },
@@ -15,6 +23,7 @@
   },
   "license": "ISC",
   "dependencies": {
+    "dotenv": "^16.4.7",
     "ky": "^1.7.4"
   },
   "devDependencies": {
@@ -25,6 +34,7 @@
     "@types/node": "^22.7.4",
     "bitbucket": "^2.12.0",
     "changelogen": "^0.5.7",
+    "glob": "^11.0.1",
     "pkgroll": "^2.5.0",
     "tsx": "^4.19.1",
     "typescript": "^5.6.2"
@@ -34,7 +44,9 @@
     "url": "https://github.com/jakub-hajduk/omnipr.git"
   },
   "type": "module",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "exports": {
@@ -46,6 +58,16 @@
       "require": {
         "default": "./dist/index.cjs",
         "types": "./dist/index.d.cts"
+      }
+    },
+    "./test": {
+      "import": {
+        "default": "./dist/test.js",
+        "types": "./dist/test.d.ts"
+      },
+      "require": {
+        "default": "./dist/test.cjs",
+        "types": "./dist/test.d.cts"
       }
     }
   }

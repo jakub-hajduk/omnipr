@@ -5,11 +5,13 @@ import { extractErrorMessage } from '../shared/extract-error-message';
 import { httpClient } from '../shared/request';
 import {
   type Branch,
+  type Commit,
   type CommitOptions,
   type Files,
   type GetFileOptions,
   type GetFilesOptions,
   type GitProvider,
+  type PullRequest,
   type PullRequestOptions,
   isBranch,
 } from '../shared/types';
@@ -27,6 +29,8 @@ type GetContentsData =
 type PostCommitData = EndpointData<'POST /repos/{owner}/{repo}/git/commits'>;
 type GetPullRequestData = EndpointData<'GET /repos/{owner}/{repo}/pulls'>;
 type PostPullRequestData = EndpointData<'POST /repos/{owner}/{repo}/pulls'>;
+type GetBranchesData = EndpointData<'GET /repos/{owner}/{repo}/branches'>;
+type GetCommitsData = EndpointData<'GET /repos/{owner}/{repo}/commits'>;
 
 export interface GithubProviderOptions {
   token: string;
@@ -35,18 +39,20 @@ export interface GithubProviderOptions {
 
 export class GithubProvider implements GitProvider<GithubProviderOptions> {
   private httpClient: KyInstance;
-  private auth: GithubProviderOptions;
 
   async setup(auth: GithubProviderOptions) {
-    this.auth = auth;
-    const repoUrl = new URL(this.auth.url);
+    if (!auth) throw errors.couldntSetupConnection('Missing auth object.');
+    if (!auth.url)
+      throw errors.couldntSetupConnection('Missing repository url.');
+    if (!auth.token) throw errors.couldntSetupConnection('Missing token.');
+    const repoUrl = new URL(auth.url);
     const [owner, repo] = repoUrl.pathname.split('/').splice(1);
 
     this.httpClient = httpClient.extend({
       prefixUrl: `https://api.github.com/repos/${owner}/${repo}`,
       headers: {
         Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${this.auth.token}`,
+        Authorization: `Bearer ${auth.token}`,
         'X-GitHub-Api-Version': '2022-11-28',
       },
       hooks: {
@@ -156,10 +162,14 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
     }
   }
 
-  public async commitToBranch(options: CommitOptions): Promise<void> {
+  public async commitToBranch(options: CommitOptions): Promise<Commit> {
     const files = options.changes;
+    const branch = await this.getBranch(options.branch);
+    let sha = branch.commit.sha;
 
-    const sha = await this.getSha(options.branch, options.path || '');
+    if (options.path) {
+      sha = await this.getSha(branch, options.path);
+    }
 
     const createNewTreeResponse = await this.httpClient
       .post<PostTreeData>('git/trees', {
@@ -189,7 +199,7 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
       })
       .json()
       .catch((e) => {
-        throw errors.couldntWriteFiles(options.branch.name, e.message);
+        throw errors.couldntWriteFiles(branch.name, e.message);
       });
 
     const createNewCommitResponse = await this.httpClient
@@ -197,26 +207,37 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
         json: {
           message: options.commitMessage,
           tree: createNewTreeResponse.sha,
-          parents: [options.branch.commit.sha],
+          parents: [branch.commit.sha],
         },
       })
       .json()
       .catch((e) => {
-        throw errors.couldntWriteFiles(options.branch.name, e.message);
+        throw errors.couldntWriteFiles(branch.name, e.message);
       });
 
     await this.httpClient
-      .post(`git/refs/heads/${options.branch.name}`, {
+      .post(`git/refs/heads/${branch.name}`, {
         json: {
           sha: createNewCommitResponse.sha,
         },
       })
       .catch((e) => {
-        throw errors.couldntWriteFiles(options.branch.name, e.message);
+        throw errors.couldntWriteFiles(branch.name, e.message);
       });
+
+    return {
+      message: createNewCommitResponse.message,
+      sha: createNewCommitResponse.sha,
+      author: {
+        name: createNewCommitResponse.author.name,
+        email: createNewCommitResponse.author.email,
+      },
+      date: createNewCommitResponse.author.date,
+    };
   }
 
   public async getFileContents(options: GetFileOptions): Promise<string> {
+    const branch = await this.getBranch(options.branch);
     const filePath = options.path
       ? `${options.path}/${options.file}`
       : options.file;
@@ -224,7 +245,7 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
     return this.httpClient
       .get<GetContentsData>(`contents/${filePath}`, {
         searchParams: {
-          ref: options.branch.name,
+          ref: branch.name,
         },
         headers: {
           Accept: 'application/vnd.github.raw',
@@ -232,19 +253,16 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
       })
       .text()
       .catch((e) => {
-        throw errors.couldntReadFileContents(
-          options.branch.name,
-          filePath,
-          e.message,
-        );
+        throw errors.couldntReadFileContents(branch.name, filePath, e.message);
       });
   }
 
   public async getFromBranch(options?: GetFilesOptions): Promise<Files> {
-    let sha = options.branch.commit.sha;
+    const branch = await this.getBranch(options.branch);
+    let sha = branch.commit.sha;
 
     if (options.path) {
-      sha = await this.getSha(options.branch, options.path);
+      sha = await this.getSha(branch, options.path);
     }
 
     const treeData = await this.httpClient
@@ -255,7 +273,7 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
       })
       .json()
       .catch((e) => {
-        throw errors.couldntReadFiles(options.branch.name, e.message);
+        throw errors.couldntReadFiles(options.branch, e.message);
       });
 
     // Filter only the files, not the directories
@@ -283,7 +301,9 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
     return Object.fromEntries(files);
   }
 
-  async createPullRequest(options: PullRequestOptions): Promise<string> {
+  public async createPullRequest(
+    options: PullRequestOptions,
+  ): Promise<PullRequest> {
     return await this.httpClient
       .post<PostPullRequestData>('pulls', {
         json: {
@@ -296,7 +316,14 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
       })
       .json()
       .then((resp) => {
-        return resp._links.html.href;
+        return {
+          title: resp.title,
+          description: resp.body,
+          sourceBranch: resp.head.ref,
+          targetBranch: resp.base.ref,
+          id: String(resp.number),
+          link: resp.html_url,
+        };
       })
       .catch(async (e) => {
         const pullRequests = await this.httpClient
@@ -320,9 +347,75 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
           (pr) => pr.base.ref === options.targetBranch && pr.head.ref,
         );
 
-        const url = pullRequest._links.html.href;
-
-        return url;
+        return {
+          title: pullRequest.title,
+          description: pullRequest.body,
+          sourceBranch: pullRequest.head.ref,
+          targetBranch: pullRequest.base.ref,
+          id: String(pullRequest.number),
+          link: pullRequest.html_url,
+        };
       });
+  }
+
+  public async getBranches(): Promise<Branch[]> {
+    const branches = await this.httpClient
+      .get<GetBranchesData>('branches', {
+        searchParams: {
+          per_page: 100,
+        },
+      })
+      .json()
+      .catch((e) => {
+        throw errors.temporary(`Couldn't get branches`, e.message);
+      });
+
+    return branches.map((branch) => ({
+      name: branch.name,
+      commit: { sha: branch.commit.sha },
+    }));
+  }
+
+  public async getPullRequests(): Promise<PullRequest[]> {
+    const pullRequests = await this.httpClient
+      .get<GetPullRequestData>('pulls', {
+        searchParams: {
+          per_page: 100,
+        },
+      })
+      .json();
+
+    return pullRequests.map((pr) => ({
+      title: pr.title,
+      description: pr.body,
+      sourceBranch: pr.head.ref,
+      targetBranch: pr.base.ref,
+      id: String(pr.number),
+      link: pr.html_url,
+    }));
+  }
+
+  public async getCommits(branch: string): Promise<Commit[]> {
+    const commits = await this.httpClient
+      .get<GetCommitsData>('commits', {
+        searchParams: {
+          sha: branch,
+          per_page: 100,
+        },
+      })
+      .json()
+      .catch((e) => {
+        throw errors.temporary('Could not get commits', e.message);
+      });
+
+    return commits.map((commit) => ({
+      message: commit.commit.message,
+      sha: commit.sha,
+      author: {
+        name: commit.commit.author.name,
+        email: commit.commit.author.email,
+      },
+      date: commit.commit.author.date,
+    }));
   }
 }
