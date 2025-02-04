@@ -15,39 +15,4 @@ export async function pullRequest<
     description,
     ...auth
   } = options;
-
-  const setupResult = await provider.setup(auth);
-
-  if (!setupResult) {
-    throw new Error(`Couldn't setup the connection to git provider.`);
-  }
-
-  const prepareBranchesResult = await provider.prepareBranches({
-    sourceBranch,
-    targetBranch,
-    resetSourceBranchIfExists,
-  });
-
-  if (!prepareBranchesResult) {
-    throw new Error(`Couldn't setup branches.`);
-  }
-
-  const writeChanges = await provider.writeChanges({
-    path,
-    commitMessage,
-    changes,
-  });
-
-  if (!writeChanges) {
-    throw new Error(`Couldn't write changes.`);
-  }
-
-  const createPullRequestResult = provider.createPullRequest({
-    title,
-    description,
-  });
-
-  if (!createPullRequestResult) {
-    throw new Error(`Couldn't create the Pull request!`);
-  }
 }
