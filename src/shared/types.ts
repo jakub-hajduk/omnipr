@@ -113,10 +113,6 @@ export interface GitProvider<InitOptions> {
    * @throws {OmniPRError} If the branch already exists.
    * @example
    * const branch = await provider.createBranch('main', 'feature-branch');
-   *
-   * @example
-   * const mainBranch = await provider.getBranch('main')
-   * const newBranch = await provider.createBranch(mainBranch, 'feature-branch');
    */
   createBranch(from: string, name: string): Promise<Branch>;
 
@@ -126,11 +122,7 @@ export interface GitProvider<InitOptions> {
    * @returns {Promise<boolean>} Returns `true` if deletion is successful.
    * @throws {OmniPRError} If the branch does not exist.
    * @example
-   * await provider.deleteBranch("feature-branch");
-   *
-   * @example
-   * const featureBranch = await provider.getBranch('feature-branch')
-   * await provider.deleteBranch(featureBranch)
+   * await provider.deleteBranch('feature-branch');
    */
   deleteBranch(name: string): Promise<void>;
 
@@ -140,21 +132,19 @@ export interface GitProvider<InitOptions> {
    * @returns {Promise<string>} The file contents as a string.
    * @throws {OmniPRError} If the file cannot be read.
    * @example
-   * const mainBranch = await provider.getBranch('main')
    * const content = await provider.getFileContents({
-   *   branch: mainBranch,
-   *   file: "config/config.json",
+   *   branch: 'main',
+   *   file: 'config/config.json',
    * });
    *
    * @example
-   * const mainBranch = await provider.getBranch('main')
-   * const content = await provider.getFileContents({
-   *   branch: mainBranch,
+   * const content = await provider.fetchFile({
+   *   branch: 'main',
    *   path: 'dir/subdir',
-   *   file: "version.txt",
+   *   file: 'version.txt',
    * });
    */
-  getFileContents(options: GetFileOptions): Promise<string>;
+  fetchFile(options: GetFileOptions): Promise<string>;
 
   /**
    * Retrieves all files from given path from given branch.
@@ -166,10 +156,9 @@ export interface GitProvider<InitOptions> {
    * const files = await provider.getFromBranch({ branch: mainBranch });
    *
    * @example
-   * const mainBranch = provider.getBranch('main');
-   * const files = await provider.getFromBranch({ branch: mainBranch, path: 'dir/subdir' });
+   * const files = await provider.fetch({ branch: 'main', path: 'dir/subdir' });
    */
-  getFromBranch(options?: GetFilesOptions): Promise<Files>;
+  fetch(options: GetFilesOptions): Promise<Files>;
 
   /**
    * Commits changes to a specified branch.
@@ -177,16 +166,15 @@ export interface GitProvider<InitOptions> {
    * @returns {Promise<void>} Resolves when the commit is successfully created.
    * @throws {OmniPRError} If the commit cannot be completed.
    * @example
-   * // Commit changes to the "main" branch
-   * const mainBranch = provider.getBranch('main');
-   * await provider.commitToBranch({
-   *   branch: mainBranch,
+   * // Commit changes to the 'main' branch
+   * await provider.push({
+   *   branch: 'main',
    *   path: 'configuration',
-   *   changes: { "file.txt": "Updated content" },
-   *   commitMessage: "Updated file.txt"
+   *   changes: { 'file.txt': 'Updated content' },
+   *   commitMessage: 'Updated file.txt'
    * });
    */
-  commitToBranch(options: CommitOptions): Promise<Commit>;
+  push(options: CommitOptions): Promise<Commit>;
 
   /**
    * Creates a pull request from a source branch to a target branch.
@@ -194,18 +182,37 @@ export interface GitProvider<InitOptions> {
    * @returns {Promise<string>} The URL of the created or existing pull request.
    * @throws {Error} If the pull request cannot be created.
    * @example
-   * // Create a pull request from "feature-branch" to "main"
+   * // Create a pull request from 'feature-branch' to 'main'
    * const prUrl = await githubProvider.createPullRequest({
-   *   sourceBranch: "feature-branch",
-   *   targetBranch: "main",
-   *   title: "New Feature",
-   *   description: "Adding a new feature"
+   *   sourceBranch: 'feature-branch',
+   *   targetBranch: 'main',
+   *   title: 'New Feature',
+   *   description: 'Adding a new feature'
    * });
-   * console.log(prUrl);
+   * console.log(pr);
    */
   createPullRequest(options: PullRequestOptions): Promise<PullRequest>;
 
+  /**
+   * Retrieves all branches from the repository.
+   * @returns {Promise<Branch[]>} An array of branch objects.
+   * @throws {OmniPRError} If the branches cannot be retrieved.
+   * @example
+   * const branches = await provider.getBranches();
+   * console.log(branches);
+   */
   getBranches(): Promise<Branch[]>;
+
+  /**
+   * Retrieves all pull requests from the repository.
+   */
   getPullRequests(): Promise<PullRequest[]>;
+
+  /**
+   * Retrieves all commits from a branch.
+   * @param branch
+   * @example
+   * const commits = await provider.getCommits('main');
+   */
   getCommits(branch: string): Promise<Commit[]>;
 }

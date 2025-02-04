@@ -148,7 +148,7 @@ export async function testProvider<
 
           await doesNotReject(
             async () => {
-              await providerInstance.commitToBranch({
+              await providerInstance.push({
                 branch: sourceBranchName,
                 changes,
                 commitMessage,
@@ -166,13 +166,13 @@ export async function testProvider<
           const commitMessage = getCommitMessage();
           const changes = { [fileName]: fileContents };
 
-          await providerInstance.commitToBranch({
+          await providerInstance.push({
             branch: sourceBranchName,
             changes,
             commitMessage,
           });
 
-          const files = await providerInstance.getFromBranch({
+          const files = await providerInstance.fetch({
             branch: sourceBranchName,
           });
 
@@ -188,13 +188,13 @@ export async function testProvider<
           const commitMessage = getCommitMessage();
           const changes = { [fileName]: fileContents };
 
-          await providerInstance.commitToBranch({
+          await providerInstance.push({
             branch: sourceBranchName,
             changes,
             commitMessage,
           });
 
-          const files = await providerInstance.getFromBranch({
+          const files = await providerInstance.fetch({
             branch: sourceBranchName,
           });
 
@@ -210,14 +210,14 @@ export async function testProvider<
           const commitMessage = getCommitMessage();
           const changes = { [fileName]: fileContents };
 
-          await providerInstance.commitToBranch({
+          await providerInstance.push({
             branch: sourceBranchName,
             changes,
             commitMessage,
             path: 'other/nested/path',
           });
 
-          const files = await providerInstance.getFromBranch({
+          const files = await providerInstance.fetch({
             branch: sourceBranchName,
           });
 
@@ -235,7 +235,7 @@ export async function testProvider<
             [fileName]: fileContents,
           };
 
-          const commit = await providerInstance.commitToBranch({
+          const commit = await providerInstance.push({
             branch: sourceBranchName,
             changes,
             commitMessage,

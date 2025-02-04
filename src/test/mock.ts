@@ -43,7 +43,7 @@ export class MockGitProvider implements GitProvider<any> {
     this.branches.delete(name);
   }
 
-  async commitToBranch(options: CommitOptions): Promise<Commit> {
+  async push(options: CommitOptions): Promise<Commit> {
     const branch = await this.getBranch(options.branch);
     const commit: Commit = {
       message: options.commitMessage,
@@ -67,7 +67,7 @@ export class MockGitProvider implements GitProvider<any> {
     return commit;
   }
 
-  async getFileContents(options: GetFileOptions): Promise<string> {
+  async fetchFile(options: GetFileOptions): Promise<string> {
     const branchFiles = this.files.get(options.branch);
     if (!branchFiles)
       throw errors.couldntReadFileContents(options.branch, options.file);
@@ -80,7 +80,7 @@ export class MockGitProvider implements GitProvider<any> {
     return contents;
   }
 
-  async getFromBranch(options: GetFilesOptions): Promise<Files> {
+  async fetch(options: GetFilesOptions): Promise<Files> {
     const branchFiles = this.files.get(options.branch);
     if (!branchFiles) throw errors.couldntReadFiles(options.branch);
     return branchFiles;

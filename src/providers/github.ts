@@ -162,7 +162,7 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
     }
   }
 
-  public async commitToBranch(options: CommitOptions): Promise<Commit> {
+  public async push(options: CommitOptions): Promise<Commit> {
     const files = options.changes;
     const branch = await this.getBranch(options.branch);
     let sha = branch.commit.sha;
@@ -236,7 +236,7 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
     };
   }
 
-  public async getFileContents(options: GetFileOptions): Promise<string> {
+  public async fetchFile(options: GetFileOptions): Promise<string> {
     const branch = await this.getBranch(options.branch);
     const filePath = options.path
       ? `${options.path}/${options.file}`
@@ -257,7 +257,7 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
       });
   }
 
-  public async getFromBranch(options?: GetFilesOptions): Promise<Files> {
+  public async fetch(options?: GetFilesOptions): Promise<Files> {
     const branch = await this.getBranch(options.branch);
     let sha = branch.commit.sha;
 
@@ -282,7 +282,7 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
     // Get the contents of the files
     const fileContents = await Promise.all(
       filesOnly.map((file) =>
-        this.getFileContents({
+        this.fetchFile({
           branch: options.branch,
           file: file.path,
           path: options.path,
