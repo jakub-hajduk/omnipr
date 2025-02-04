@@ -2,11 +2,11 @@ import { doesNotReject, equal, ok, rejects } from 'node:assert';
 import { after, describe, it } from 'node:test';
 
 import { type OmniPRError, errors } from '../shared/errors';
-import type { GitProvider, PullRequest } from '../shared/types';
-
-interface GitProviderConstructor<A> {
-  new (): GitProvider<A>;
-}
+import type {
+  GitProvider,
+  GitProviderConstructor,
+  PullRequest,
+} from '../shared/types';
 
 const getErrorMessage = <
   K extends keyof typeof errors,
@@ -34,10 +34,6 @@ const rand = () => Math.floor(Math.random() * 1000);
 /**
  * Provider test helper that tests a GitProvider implementation.
  * It's not perfect, but it tests some things.
- *
- * @param ProviderConstructor - the constructor class.
- * @param auth - auth data for the provider.
- * @param master {String} - main branch name for the remote repository. (default: 'main')
  */
 export async function testProvider<
   P extends GitProviderConstructor<any>,

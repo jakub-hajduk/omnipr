@@ -1,8 +1,7 @@
 import type { Endpoints } from '@octokit/types';
-import type { HTTPError, KyInstance } from 'ky';
+import type { HTTPError } from 'ky';
 import { errors } from '../shared/errors';
-import { extractErrorMessage } from '../shared/extract-error-message';
-import { httpClient } from '../shared/request';
+import { HTTPRequest } from '../shared/request';
 import {
   type Branch,
   type Commit,
@@ -38,7 +37,13 @@ export interface GithubProviderOptions {
 }
 
 export class GithubProvider implements GitProvider<GithubProviderOptions> {
-  private httpClient: KyInstance;
+  private httpClient: HTTPRequest;
+
+  constructor(customFetch?: typeof fetch) {
+    if (customFetch) {
+      this.httpClient.fetch = customFetch;
+    }
+  }
 
   async setup(auth: GithubProviderOptions) {
     if (!auth) throw errors.couldntSetupConnection('Missing auth object.');
@@ -48,33 +53,22 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
     const repoUrl = new URL(auth.url);
     const [owner, repo] = repoUrl.pathname.split('/').splice(1);
 
-    this.httpClient = httpClient.extend({
-      prefixUrl: `https://api.github.com/repos/${owner}/${repo}`,
+    this.httpClient = new HTTPRequest({
+      url: `https://api.github.com/repos/${owner}/${repo}`,
       headers: {
         Accept: 'application/vnd.github+json',
         Authorization: `Bearer ${auth.token}`,
         'X-GitHub-Api-Version': '2022-11-28',
       },
-      hooks: {
-        beforeError: [
-          await extractErrorMessage((err) => `${err.status} - ${err.message}`),
-        ],
-      },
+      extractErrorMessage: (error: any) => ({
+        message: error.message,
+        status: error.status,
+      }),
     });
   }
 
-  // Branch already exists
-  public async createBranch(from: string, name: string): Promise<Branch>;
-  public async createBranch(fromBranch: Branch, name: string): Promise<Branch>;
-  public async createBranch(
-    from: string | Branch,
-    name: string,
-  ): Promise<Branch> {
-    let fromBranch = from as Branch;
-
-    if (typeof from === 'string') {
-      fromBranch = await this.getBranch(from);
-    }
+  public async createBranch(from: string, name: string): Promise<Branch> {
+    const fromBranch = await this.getBranch(from);
 
     return await this.httpClient
       .post<CreateBranchData>('git/refs', {
@@ -141,7 +135,7 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
     try {
       const contents = await this.httpClient
         .get<GetContentsData>(`contents/${parent}`, {
-          searchParams: {
+          query: {
             ref: branch.name,
           },
         })
@@ -221,6 +215,7 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
           sha: createNewCommitResponse.sha,
         },
       })
+      .json()
       .catch((e) => {
         throw errors.couldntWriteFiles(branch.name, e.message);
       });
@@ -244,7 +239,7 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
 
     return this.httpClient
       .get<GetContentsData>(`contents/${filePath}`, {
-        searchParams: {
+        query: {
           ref: branch.name,
         },
         headers: {
@@ -267,7 +262,7 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
 
     const treeData = await this.httpClient
       .get<TreeData>(`git/trees/${sha}`, {
-        searchParams: {
+        query: {
           recursive: 'true',
         },
       })
@@ -328,7 +323,7 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
       .catch(async (e) => {
         const pullRequests = await this.httpClient
           .get<GetPullRequestData>('pulls', {
-            searchParams: {
+            query: {
               head: options.sourceBranch,
               base: options.targetBranch,
               per_page: 100,
@@ -361,7 +356,7 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
   public async getBranches(): Promise<Branch[]> {
     const branches = await this.httpClient
       .get<GetBranchesData>('branches', {
-        searchParams: {
+        query: {
           per_page: 100,
         },
       })
@@ -379,7 +374,7 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
   public async getPullRequests(): Promise<PullRequest[]> {
     const pullRequests = await this.httpClient
       .get<GetPullRequestData>('pulls', {
-        searchParams: {
+        query: {
           per_page: 100,
         },
       })
@@ -398,7 +393,7 @@ export class GithubProvider implements GitProvider<GithubProviderOptions> {
   public async getCommits(branch: string): Promise<Commit[]> {
     const commits = await this.httpClient
       .get<GetCommitsData>('commits', {
-        searchParams: {
+        query: {
           sha: branch,
           per_page: 100,
         },

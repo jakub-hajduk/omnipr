@@ -79,6 +79,10 @@ export type OmniPROptions = BranchesOptions &
   PullRequestOptions &
   TokenProviderOptions;
 
+export interface GitProviderConstructor<A> {
+  new (customFetch?: typeof fetch): GitProvider<A>;
+}
+
 export interface GitProvider<InitOptions> {
   /**
    * Sets up the Git provider with authentication details.

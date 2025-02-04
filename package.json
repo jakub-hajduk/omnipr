@@ -2,14 +2,7 @@
   "name": "omnipr",
   "version": "0.0.1",
   "description": "OmniPR creates pull requests across Git providers like GitHub, GitLab, Bitbucket, etc. It’s modular, provider-agnostic, and works in Node.js/browser.",
-  "keywords": [
-    "pull request",
-    "pr",
-    "git",
-    "github",
-    "gitlab",
-    "bitbucket"
-  ],
+  "keywords": ["pull request", "pr", "git", "github", "gitlab", "bitbucket"],
   "scripts": {
     "build": "pkgroll",
     "check": "biome check",
@@ -22,10 +15,6 @@
     "email": "devhajduk@gmail.com"
   },
   "license": "ISC",
-  "dependencies": {
-    "dotenv": "^16.4.7",
-    "ky": "^1.7.4"
-  },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
     "@gitbeaker/rest": "^40.4.0",
@@ -34,6 +23,7 @@
     "@types/node": "^22.7.4",
     "bitbucket": "^2.12.0",
     "changelogen": "^0.5.7",
+    "dotenv": "^16.4.7",
     "glob": "^11.0.1",
     "pkgroll": "^2.5.0",
     "tsx": "^4.19.1",
@@ -44,9 +34,7 @@
     "url": "https://github.com/jakub-hajduk/omnipr.git"
   },
   "type": "module",
-  "files": [
-    "dist"
-  ],
+  "files": ["dist"],
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "exports": {
