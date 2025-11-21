@@ -1,287 +1,254 @@
-import type { Endpoints } from '@octokit/types';
-import type { KyInstance } from 'ky';
-import { normalizePath } from '../shared/normalize-path';
-import { httpClient } from '../shared/request';
-import type {
-  BranchesOptions,
-  GitProvider,
-  PullRequestOptions,
-  ReadFilesOptions,
-  WriteChangesOptions,
-} from '../shared/types';
+import type { Provider } from "../shared/types";
+import { normalizeDirectoryPath } from "../shared/path-utils";
 
-type GetBranchEndpoint =
-  Endpoints['GET /repos/{owner}/{repo}/branches/{branch}'];
-type GetBranchData = GetBranchEndpoint['response']['data'];
-
-type GetTreeEndpoint =
-  Endpoints['GET /repos/{owner}/{repo}/git/trees/{tree_sha}'];
-type TreeData = GetTreeEndpoint['response']['data'];
-type TreeDataEntry = TreeData['tree'][number];
-
-type PostTreeEndpoint = Endpoints['POST /repos/{owner}/{repo}/git/trees'];
-type PostTreeData = PostTreeEndpoint['response']['data'];
-
-type GetContentsEndpoint =
-  Endpoints['GET /repos/{owner}/{repo}/contents/{path}'];
-type ContentsData = GetContentsEndpoint['response']['data'];
-
-type PostCommitsEndpoint = Endpoints['POST /repos/{owner}/{repo}/git/commits'];
-type PostCommitData = PostCommitsEndpoint['response']['data'];
-
-type ExistingFile = TreeDataEntry & { contents: string };
-
-export interface GithubProviderOptions {
+interface GithubProviderConfig {
   token: string;
-  url: string;
+  owner: string;
+  repo: string;
 }
 
-class GithubProvider implements GitProvider<GithubProviderOptions> {
-  private httpClient: KyInstance;
-  private sourceBranch: GetBranchData;
-  private targetBranch: GetBranchData;
-  private auth: GithubProviderOptions;
+export class GithubProvider implements Provider {
+  private readonly baseUrl: string;
+  private readonly headers: HeadersInit;
+  private readonly owner: string;
+  private readonly repo: string;
+  public fetch = globalThis.fetch;
 
-  async setup(auth: GithubProviderOptions) {
-    this.auth = auth;
-    const repoUrl = new URL(this.auth.url);
-    const [owner, repo] = repoUrl.pathname.split('/').splice(1);
+  constructor(config: GithubProviderConfig) {
+    this.owner = config.owner;
+    this.repo = config.repo;
+    this.baseUrl = `https://api.github.com/repos/${config.owner}/${config.repo}`;
+    this.headers = {
+      Authorization: `Bearer ${config.token}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+      "Content-Type": "application/json",
+    };
+  }
 
-    this.httpClient = httpClient.extend({
-      prefixUrl: `https://api.github.com/repos/${owner}/${repo}`,
-      headers: {
-        Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${this.auth.token}`,
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: object,
+    customHeaders?: HeadersInit,
+  ): Promise<T> {
+    const response = await this.fetch(`${this.baseUrl}${path}`, {
+      method,
+      headers: { ...this.headers, ...customHeaders },
+      body: body ? JSON.stringify(body) : undefined,
     });
 
-    return true;
-  }
-
-  private async getBranch(branch: string): Promise<GetBranchData> {
-    try {
-      return await this.httpClient
-        .get<GetBranchData>(`branches/${branch}`)
-        .json();
-    } catch {
-      return;
-    }
-  }
-
-  private async deleteSourceBranch(sourceBranch: string) {
-    try {
-      await this.httpClient.delete(`git/refs/heads/${sourceBranch}`).json();
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  private async createSourceBranch(sourceBranch: string): Promise<boolean> {
-    try {
-      await this.httpClient
-        .post('git/refs', {
-          json: {
-            sha: this.targetBranch.commit.sha,
-            ref: `refs/heads/${sourceBranch}`,
-          },
-        })
-        .json();
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  private async getSha(path: string) {
-    if (path === '') {
-      return this.sourceBranch.commit.commit.tree.sha;
-    }
-
-    const parent = path.includes('/')
-      ? path.split('/').slice(0, -1).join('/')
-      : '';
-
-    const contents = await this.httpClient
-      .get<ContentsData>(`contents/${parent}`, {
-        searchParams: {
-          ref: this.sourceBranch.name,
-        },
-      })
-      .json();
-
-    if (Array.isArray(contents)) {
-      const directory = contents.find((item) => item.path === path);
-      return directory.sha;
-    }
-
-    if (contents.path === path) {
-      return contents.sha;
-    }
-  }
-
-  public async prepareBranches(options: BranchesOptions) {
-    try {
-      this.targetBranch = await this.getBranch(options.targetBranch);
-
-      const sourceBranch = await this.getBranch(options.sourceBranch);
-
-      if (sourceBranch && options.resetSourceBranchIfExists) {
-        await this.deleteSourceBranch(options.sourceBranch);
-        await this.createSourceBranch(options.sourceBranch);
-        this.sourceBranch = await this.getBranch(options.sourceBranch);
-        return true;
-      }
-
-      this.sourceBranch = sourceBranch;
-      if (sourceBranch) return true;
-
-      await this.createSourceBranch(options.sourceBranch);
-      this.sourceBranch = await this.getBranch(options.sourceBranch);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  public async getFilesFromSourceBranch(
-    options?: ReadFilesOptions,
-  ): Promise<Record<string, string>> {
-    const sha = await this.getSha(normalizePath(options?.path || ''));
-
-    const treeData = await this.httpClient
-      .get<TreeData>(`git/trees/${sha}`, {
-        searchParams: {
-          recursive: 'true',
-        },
-      })
-      .json();
-
-    let treeContentsBlobs = treeData.tree.filter(
-      (entry) => entry.type === 'blob',
-    );
-
-    if (Array.isArray(options?.files) && options.files.length > 0) {
-      treeContentsBlobs = treeContentsBlobs.filter((entry) =>
-        options.files.includes(entry.path),
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(
+        `GitHub API error: ${response.status} ${response.statusText} - ${errorBody}`,
       );
     }
 
-    const fileContents = await Promise.all(
-      treeContentsBlobs.map((file) => {
-        return this.httpClient
-          .get(`contents/${[options?.path, file.path].join('/')}`, {
-            searchParams: {
-              ref: this.sourceBranch.name,
+    if (response.status === 204) {
+      return undefined as T; // No content for 204
+    }
+
+    return response.json() as Promise<T>;
+  }
+
+  async getBranchSha(branchName: string): Promise<string | undefined> {
+    try {
+      const data = await this.request<{ commit: { sha: string } }>(
+        "GET",
+        `/branches/${branchName}`,
+      );
+      return data.commit.sha;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("404 Not Found")) {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
+  async createBranch(branchName: string, sha: string): Promise<void> {
+    await this.request("POST", "/git/refs", {
+      ref: `refs/heads/${branchName}`,
+      sha: sha,
+    });
+  }
+
+  async deleteBranch(branchName: string): Promise<void> {
+    await this.request("DELETE", `/git/refs/heads/${branchName}`);
+  }
+
+  async getFileContent(
+    branchName: string,
+    filePath: string,
+  ): Promise<string | undefined> {
+    try {
+      const response = await fetch(
+        `${this.baseUrl}/contents/${filePath}?ref=${branchName}`,
+        {
+          headers: {
+            ...this.headers,
+            Accept: "application/vnd.github.raw", // To get raw content
+          },
+        },
+      );
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          return undefined;
+        }
+        const errorBody = await response.text();
+        throw new Error(
+          `GitHub API error: ${response.status} ${response.statusText} - ${errorBody}`,
+        );
+      }
+      return response.text();
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async pull(
+    branchName: string,
+    path: string = "./",
+    recursive = false,
+  ): Promise<Map<string, string>> {
+    try {
+      const branchInfo = await this.request<{
+        commit: { commit: { tree: { sha: string } } };
+      }>("GET", `/branches/${branchName}`);
+      const rootTreeSha = branchInfo.commit.commit.tree.sha;
+
+      const treeData = await this.request<{
+        tree: Array<{ path: string; type: string }>;
+      }>("GET", `/git/trees/${rootTreeSha}?recursive=true`);
+
+      const normalizedDirectoryPath = normalizeDirectoryPath(path);
+
+      const filesToFetch: { fullPath: string; relativePath: string }[] = [];
+
+      for (const entry of treeData.tree) {
+        if (entry.type !== "blob") continue;
+
+        let isMatch = false;
+        let relativePath = "";
+
+        if (normalizedDirectoryPath === "") {
+          isMatch = true;
+          relativePath = entry.path;
+        } else if (entry.path.startsWith(`${normalizedDirectoryPath}/`)) {
+          isMatch = true;
+          relativePath = entry.path.substring(
+            normalizedDirectoryPath.length + 1,
+          );
+        }
+
+        if (isMatch) {
+          if (recursive || !relativePath.includes("/")) {
+            filesToFetch.push({ fullPath: entry.path, relativePath });
+          }
+        }
+      }
+
+      const fileContentsMap = new Map<string, string>();
+      const contentPromises = filesToFetch.map(async (file) => {
+        const content = await this.getFileContent(branchName, file.fullPath);
+        if (content !== undefined) {
+          fileContentsMap.set(file.relativePath, content);
+        }
+      });
+
+      await Promise.all(contentPromises);
+
+      return fileContentsMap;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("404 Not Found")) {
+        return new Map<string, string>();
+      }
+      throw error;
+    }
+  }
+
+  async commitChanges(
+    branchName: string,
+    changes: Record<string, string | null>,
+    commitMessage: string,
+  ): Promise<void> {
+    const currentBranch = await this.request<{
+      commit: { sha: string; commit: { tree: { sha: string } } };
+    }>("GET", `/branches/${branchName}`);
+    const baseTreeSha = currentBranch.commit.commit.tree.sha;
+    const parentCommitSha = currentBranch.commit.sha;
+
+    const tree = await Promise.all(
+      Object.entries(changes).map(async ([path, content]) => {
+        if (content === null) {
+          return { path, mode: "100644", type: "blob", sha: null };
+        } else {
+          const blob = await this.request<{ sha: string }>(
+            "POST",
+            "/git/blobs",
+            {
+              content: content,
+              encoding: "utf-8",
             },
-            headers: {
-              Accept: 'application/vnd.github.raw',
-            },
-          })
-          .text();
+          );
+          return { path, mode: "100644", type: "blob", sha: blob.sha };
+        }
       }),
     );
 
-    const existingFiles: Record<string, ExistingFile> = {};
-
-    for (let index = 0; index < treeContentsBlobs.length; index++) {
-      const treeEntry = treeContentsBlobs[index];
-      const contents = fileContents[index];
-      existingFiles[treeEntry.path] = {
-        ...treeEntry,
-        contents,
-      };
-    }
-
-    return Object.fromEntries(
-      Object.values(existingFiles).map(({ path, contents }) => [
-        path,
-        contents,
-      ]),
-    );
-  }
-
-  public async writeChanges(options: WriteChangesOptions): Promise<boolean> {
-    const treeSha = await this.getSha(options.path || '');
-    const existingFiles = await this.getFilesFromSourceBranch({
-      path: options.path,
+    const newTree = await this.request<{ sha: string }>("POST", "/git/trees", {
+      base_tree: baseTreeSha,
+      tree: tree,
     });
-    const files = options.changes;
 
-    try {
-      const createNewTreeResponse = await this.httpClient
-        .post<PostTreeData>('git/trees', {
-          json: {
-            base_tree: treeSha,
-            tree: Object.entries(files).map(([file, contents]) => {
-              let fileContents = contents;
+    const newCommit = await this.request<{ sha: string }>(
+      "POST",
+      "/git/commits",
+      {
+        message: commitMessage,
+        tree: newTree.sha,
+        parents: [parentCommitSha],
+      },
+    );
 
-              if (typeof contents === 'function') {
-                fileContents = contents({
-                  exists: !!existingFiles[file],
-                  contents: existingFiles[file],
-                  path: file,
-                });
-              }
-
-              if (fileContents === null) {
-                // If contents is null, remove file.
-                return {
-                  path: file,
-                  sha: null,
-                  mode: '100644',
-                  type: 'blob',
-                };
-              }
-
-              return {
-                path: file,
-                content: fileContents,
-                mode: '100644',
-                type: 'blob',
-              };
-            }),
-          },
-        })
-        .json();
-
-      const createNewCommitResponse = await this.httpClient
-        .post<PostCommitData>('git/commits', {
-          json: {
-            message: options.commitMessage,
-            tree: createNewTreeResponse.sha,
-            parents: [this.sourceBranch.commit.sha],
-          },
-        })
-        .json();
-
-      await this.httpClient.post(`git/refs/heads/${this.sourceBranch.name}`, {
-        json: {
-          sha: createNewCommitResponse.sha,
-        },
-      });
-
-      return true;
-    } catch {
-      return false;
-    }
+    await this.request("PATCH", `/git/refs/heads/${branchName}`, {
+      sha: newCommit.sha,
+    });
   }
 
-  async createPullRequest(options: PullRequestOptions): Promise<boolean> {
-    await this.httpClient
-      .post('pulls', {
-        json: {
-          title: options.title,
-          body: options.description,
-          base: this.targetBranch.name,
-          head: this.sourceBranch.name,
-          maintainer_can_modify: true,
+  async createPullRequest(
+    sourceBranch: string,
+    targetBranch: string,
+    title: string,
+    description?: string,
+  ): Promise<string> {
+    const existingPRs = await this.request<
+      Array<{ number: number; html_url: string }>
+    >(
+      "GET",
+      `/pulls?state=open&head=${this.owner}:${sourceBranch}&base=${targetBranch}`,
+    );
+
+    if (existingPRs.length > 0) {
+      const prNumber = existingPRs[0].number;
+      const updatedPR = await this.request<{ html_url: string }>(
+        "PATCH",
+        `/pulls/${prNumber}`,
+        {
+          title: title,
+          body: description,
         },
-      })
-      .json();
-    return true;
+      );
+      return updatedPR.html_url;
+    } else {
+      const newPR = await this.request<{ html_url: string }>("POST", "/pulls", {
+        title: title,
+        body: description,
+        head: sourceBranch,
+        base: targetBranch,
+      });
+      return newPR.html_url;
+    }
   }
 }
-
-export const github = new GithubProvider();
