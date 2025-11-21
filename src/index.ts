@@ -2,7 +2,7 @@ export { omnipr } from './omnipr';
 export * from './providers/bitbucket';
 export * from './providers/github';
 export * from './providers/gitlab';
-export {
+export type {
   Provider,
   OmniPROptions,
   FileChange,

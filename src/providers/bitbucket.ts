@@ -15,7 +15,7 @@ interface BitbucketPullRequest {
 export class BitbucketProvider implements Provider {
   private readonly baseUrl: string;
   private readonly headers: HeadersInit;
-  public fetch = globalThis.fetch;
+  public fetch: typeof fetch = globalThis.fetch;
 
   constructor(config: BitbucketProviderConfig) {
     const { path } = parseUrl(config.url);
@@ -37,9 +37,9 @@ export class BitbucketProvider implements Provider {
     body?: object | FormData,
     isJson = true,
   ): Promise<T> {
-    const headers = { ...this.headers };
+    const headers: HeadersInit = { ...this.headers };
     if (isJson) {
-      headers['Content-Type'] = 'application/json';
+      (headers as any)['Content-Type'] = 'application/json';
     }
 
     const response = await this.fetch(`${this.baseUrl}${path}`, {
@@ -123,7 +123,7 @@ export class BitbucketProvider implements Provider {
     path = './',
     recursive = false,
   ): Promise<Record<string, string>> {
-    const filesMap = {};
+    const filesMap: Record<string, string> = {};
     const normalizedDirectoryPath = normalizeDirectoryPath(path);
     let nextUrl: string | undefined =
       `${this.baseUrl}/src/${branchName}?pagelen=100`;

@@ -11,7 +11,7 @@ export class GithubProvider implements Provider {
   private readonly baseUrl: string;
   private readonly headers: HeadersInit;
   private readonly owner: string;
-  public fetch = globalThis.fetch;
+  public fetch: typeof fetch = globalThis.fetch;
 
   constructor(config: GithubProviderConfig) {
     const { path } = parseUrl(config.url);
@@ -147,7 +147,7 @@ export class GithubProvider implements Provider {
         }
       }
 
-      const fileContentsMap = {};
+      const fileContentsMap: Record<string, string> = {};
       const contentPromises = filesToFetch.map(async (file) => {
         const content = await this.getFileContent(branchName, file.fullPath);
         if (content !== undefined) {

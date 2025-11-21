@@ -16,7 +16,7 @@ export class GitlabProvider implements Provider {
   private readonly baseUrl: string;
   private readonly headers: HeadersInit;
   private readonly projectId: string;
-  public fetch = globalThis.fetch;
+  public fetch: typeof fetch = globalThis.fetch;
 
   constructor(config: GitlabProviderConfig) {
     const { path, domain, protocol } = parseUrl(config.url);
@@ -124,7 +124,7 @@ export class GitlabProvider implements Provider {
         `/repository/tree?ref=${this.encodeFilePath(branchName)}&path=${this.encodeFilePath(normalizedDirectoryPath)}&recursive=${recursive}&per_page=100`,
       );
 
-      const fileContentsMap = {};
+      const fileContentsMap: Record<string, string> = {};
       const contentPromises = tree
         .filter((item) => item.type === 'blob')
         .map(async (item) => {
