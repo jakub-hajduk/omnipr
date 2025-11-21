@@ -1,27 +1,29 @@
-import type { Provider } from "../shared/types";
-import { normalizeDirectoryPath } from "../shared/path-utils";
+import { parseUrl } from '../shared/parse-url';
+import { normalizeDirectoryPath } from '../shared/path-utils';
+import type { Provider } from '../shared/types';
 
 interface GithubProviderConfig {
   token: string;
-  owner: string;
-  repo: string;
+  url: string;
 }
 
 export class GithubProvider implements Provider {
   private readonly baseUrl: string;
   private readonly headers: HeadersInit;
   private readonly owner: string;
-  private readonly repo: string;
   public fetch = globalThis.fetch;
 
   constructor(config: GithubProviderConfig) {
-    this.owner = config.owner;
-    this.repo = config.repo;
-    this.baseUrl = `https://api.github.com/repos/${config.owner}/${config.repo}`;
+    const { path } = parseUrl(config.url);
+
+    const [owner, repo] = path.replace(/^\/|\/$/g, '').split('/');
+
+    this.owner = owner;
+    this.baseUrl = `https://api.github.com/repos/${owner}/${repo}`;
     this.headers = {
       Authorization: `Bearer ${config.token}`,
-      "X-GitHub-Api-Version": "2022-11-28",
-      "Content-Type": "application/json",
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json',
     };
   }
 
@@ -54,12 +56,12 @@ export class GithubProvider implements Provider {
   async getBranchSha(branchName: string): Promise<string | undefined> {
     try {
       const data = await this.request<{ commit: { sha: string } }>(
-        "GET",
+        'GET',
         `/branches/${branchName}`,
       );
       return data.commit.sha;
     } catch (error) {
-      if (error instanceof Error && error.message.includes("404 Not Found")) {
+      if (error instanceof Error && error.message.includes('404 Not Found')) {
         return undefined;
       }
       throw error;
@@ -67,72 +69,68 @@ export class GithubProvider implements Provider {
   }
 
   async createBranch(branchName: string, sha: string): Promise<void> {
-    await this.request("POST", "/git/refs", {
+    await this.request('POST', '/git/refs', {
       ref: `refs/heads/${branchName}`,
       sha: sha,
     });
   }
 
   async deleteBranch(branchName: string): Promise<void> {
-    await this.request("DELETE", `/git/refs/heads/${branchName}`);
+    await this.request('DELETE', `/git/refs/heads/${branchName}`);
   }
 
   async getFileContent(
     branchName: string,
     filePath: string,
   ): Promise<string | undefined> {
-    try {
-      const response = await fetch(
-        `${this.baseUrl}/contents/${filePath}?ref=${branchName}`,
-        {
-          headers: {
-            ...this.headers,
-            Accept: "application/vnd.github.raw", // To get raw content
-          },
+    const response = await fetch(
+      `${this.baseUrl}/contents/${filePath}?ref=${branchName}`,
+      {
+        headers: {
+          ...this.headers,
+          Accept: 'application/vnd.github.raw', // To get raw content
         },
-      );
+      },
+    );
 
-      if (!response.ok) {
-        if (response.status === 404) {
-          return undefined;
-        }
-        const errorBody = await response.text();
-        throw new Error(
-          `GitHub API error: ${response.status} ${response.statusText} - ${errorBody}`,
-        );
+    if (!response.ok) {
+      if (response.status === 404) {
+        return undefined;
       }
-      return response.text();
-    } catch (error) {
-      throw error;
+      const errorBody = await response.text();
+      throw new Error(
+        `GitHub API error: ${response.status} ${response.statusText} - ${errorBody}`,
+      );
     }
+    return response.text();
   }
 
   async pull(
     branchName: string,
-    path: string = "./",
+    path = './',
     recursive = false,
   ): Promise<Map<string, string>> {
     try {
       const branchInfo = await this.request<{
         commit: { commit: { tree: { sha: string } } };
-      }>("GET", `/branches/${branchName}`);
+      }>('GET', `/branches/${branchName}`);
       const rootTreeSha = branchInfo.commit.commit.tree.sha;
 
       const treeData = await this.request<{
         tree: Array<{ path: string; type: string }>;
-      }>("GET", `/git/trees/${rootTreeSha}?recursive=true`);
+      }>('GET', `/git/trees/${rootTreeSha}?recursive=true`);
 
       const normalizedDirectoryPath = normalizeDirectoryPath(path);
 
       const filesToFetch: { fullPath: string; relativePath: string }[] = [];
 
       for (const entry of treeData.tree) {
-        if (entry.type !== "blob") continue;
+        if (entry.type !== 'blob') continue;
 
         let isMatch = false;
-        let relativePath = "";
+        let relativePath = '';
 
-        if (normalizedDirectoryPath === "") {
+        if (normalizedDirectoryPath === '') {
           isMatch = true;
           relativePath = entry.path;
         } else if (entry.path.startsWith(`${normalizedDirectoryPath}/`)) {
@@ -143,7 +141,7 @@ export class GithubProvider implements Provider {
         }
 
         if (isMatch) {
-          if (recursive || !relativePath.includes("/")) {
+          if (recursive || !relativePath.includes('/')) {
             filesToFetch.push({ fullPath: entry.path, relativePath });
           }
         }
@@ -161,7 +159,7 @@ export class GithubProvider implements Provider {
 
       return fileContentsMap;
     } catch (error) {
-      if (error instanceof Error && error.message.includes("404 Not Found")) {
+      if (error instanceof Error && error.message.includes('404 Not Found')) {
         return new Map<string, string>();
       }
       throw error;
@@ -175,36 +173,31 @@ export class GithubProvider implements Provider {
   ): Promise<void> {
     const currentBranch = await this.request<{
       commit: { sha: string; commit: { tree: { sha: string } } };
-    }>("GET", `/branches/${branchName}`);
+    }>('GET', `/branches/${branchName}`);
     const baseTreeSha = currentBranch.commit.commit.tree.sha;
     const parentCommitSha = currentBranch.commit.sha;
 
     const tree = await Promise.all(
       Object.entries(changes).map(async ([path, content]) => {
         if (content === null) {
-          return { path, mode: "100644", type: "blob", sha: null };
-        } else {
-          const blob = await this.request<{ sha: string }>(
-            "POST",
-            "/git/blobs",
-            {
-              content: content,
-              encoding: "utf-8",
-            },
-          );
-          return { path, mode: "100644", type: "blob", sha: blob.sha };
+          return { path, mode: '100644', type: 'blob', sha: null };
         }
+        const blob = await this.request<{ sha: string }>('POST', '/git/blobs', {
+          content: content,
+          encoding: 'utf-8',
+        });
+        return { path, mode: '100644', type: 'blob', sha: blob.sha };
       }),
     );
 
-    const newTree = await this.request<{ sha: string }>("POST", "/git/trees", {
+    const newTree = await this.request<{ sha: string }>('POST', '/git/trees', {
       base_tree: baseTreeSha,
       tree: tree,
     });
 
     const newCommit = await this.request<{ sha: string }>(
-      "POST",
-      "/git/commits",
+      'POST',
+      '/git/commits',
       {
         message: commitMessage,
         tree: newTree.sha,
@@ -212,7 +205,7 @@ export class GithubProvider implements Provider {
       },
     );
 
-    await this.request("PATCH", `/git/refs/heads/${branchName}`, {
+    await this.request('PATCH', `/git/refs/heads/${branchName}`, {
       sha: newCommit.sha,
     });
   }
@@ -226,14 +219,14 @@ export class GithubProvider implements Provider {
     const existingPRs = await this.request<
       Array<{ number: number; html_url: string }>
     >(
-      "GET",
+      'GET',
       `/pulls?state=open&head=${this.owner}:${sourceBranch}&base=${targetBranch}`,
     );
 
     if (existingPRs.length > 0) {
       const prNumber = existingPRs[0].number;
       const updatedPR = await this.request<{ html_url: string }>(
-        "PATCH",
+        'PATCH',
         `/pulls/${prNumber}`,
         {
           title: title,
@@ -241,14 +234,14 @@ export class GithubProvider implements Provider {
         },
       );
       return updatedPR.html_url;
-    } else {
-      const newPR = await this.request<{ html_url: string }>("POST", "/pulls", {
-        title: title,
-        body: description,
-        head: sourceBranch,
-        base: targetBranch,
-      });
-      return newPR.html_url;
     }
+
+    const newPR = await this.request<{ html_url: string }>('POST', '/pulls', {
+      title: title,
+      body: description,
+      head: sourceBranch,
+      base: targetBranch,
+    });
+    return newPR.html_url;
   }
 }

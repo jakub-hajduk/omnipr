@@ -1,10 +1,15 @@
-import type { Provider } from "../shared/types";
-import { normalizeDirectoryPath } from "../shared/path-utils";
+import { parseUrl } from '../shared/parse-url';
+import { normalizeDirectoryPath } from '../shared/path-utils';
+import type { Provider } from '../shared/types';
 
 interface GitlabProviderConfig {
   token: string;
   url: string;
-  projectId: string;
+}
+
+interface GitLabMergeRequest {
+  iid: number;
+  web_url: string;
 }
 
 export class GitlabProvider implements Provider {
@@ -14,11 +19,13 @@ export class GitlabProvider implements Provider {
   public fetch = globalThis.fetch;
 
   constructor(config: GitlabProviderConfig) {
-    this.projectId = this.encodeFilePath(config.projectId); // Project ID or path needs to be encoded for URL
-    this.baseUrl = `${config.url}/api/v4/projects/${this.projectId}`;
+    const { path, domain, protocol } = parseUrl(config.url);
+
+    this.projectId = this.encodeFilePath(path.slice(1));
+    this.baseUrl = `${protocol}://${domain}/api/v4/projects/${this.projectId}`;
     this.headers = {
       Authorization: `Bearer ${config.token}`,
-      "Content-Type": "application/json",
+      'Content-Type': 'application/json',
     };
   }
 
@@ -50,18 +57,18 @@ export class GitlabProvider implements Provider {
 
   // Helper to encode file paths and branch names for GitLab API
   private encodeFilePath(path: string): string {
-    return encodeURIComponent(path).replace(/\./g, "%2E");
+    return encodeURIComponent(path).replace(/\./g, '%2E');
   }
 
   async getBranchSha(branchName: string): Promise<string | undefined> {
     try {
       const data = await this.request<{ commit: { id: string } }>(
-        "GET",
+        'GET',
         `/repository/branches/${this.encodeFilePath(branchName)}`,
       );
       return data.commit.id;
     } catch (error) {
-      if (error instanceof Error && error.message.includes("404 Not Found")) {
+      if (error instanceof Error && error.message.includes('404 Not Found')) {
         return undefined;
       }
       throw error;
@@ -69,7 +76,7 @@ export class GitlabProvider implements Provider {
   }
 
   async createBranch(branchName: string, sha: string): Promise<void> {
-    await this.request("POST", "/repository/branches", {
+    await this.request('POST', '/repository/branches', {
       branch: branchName,
       ref: sha,
     });
@@ -77,7 +84,7 @@ export class GitlabProvider implements Provider {
 
   async deleteBranch(branchName: string): Promise<void> {
     await this.request(
-      "DELETE",
+      'DELETE',
       `/repository/branches/${this.encodeFilePath(branchName)}`,
     );
   }
@@ -86,44 +93,40 @@ export class GitlabProvider implements Provider {
     branchName: string,
     filePath: string,
   ): Promise<string | undefined> {
-    try {
-      const response = await fetch(
-        `${this.baseUrl}/repository/files/${this.encodeFilePath(filePath)}/raw?ref=${this.encodeFilePath(branchName)}`,
-        {
-          headers: this.headers,
-        },
-      );
+    const response = await fetch(
+      `${this.baseUrl}/repository/files/${this.encodeFilePath(filePath)}/raw?ref=${this.encodeFilePath(branchName)}`,
+      {
+        headers: this.headers,
+      },
+    );
 
-      if (!response.ok) {
-        if (response.status === 404) {
-          return undefined;
-        }
-        const errorBody = await response.text();
-        throw new Error(
-          `GitLab API error: ${response.status} ${response.statusText} - ${errorBody}`,
-        );
+    if (!response.ok) {
+      if (response.status === 404) {
+        return undefined;
       }
-      return response.text();
-    } catch (error) {
-      throw error;
+      const errorBody = await response.text();
+      throw new Error(
+        `GitLab API error: ${response.status} ${response.statusText} - ${errorBody}`,
+      );
     }
+    return response.text();
   }
 
   async pull(
     branchName: string,
-    path: string = "./",
+    path = './',
     recursive = false,
   ): Promise<Map<string, string>> {
     try {
       const normalizedDirectoryPath = normalizeDirectoryPath(path);
       const tree = await this.request<Array<{ path: string; type: string }>>(
-        "GET",
+        'GET',
         `/repository/tree?ref=${this.encodeFilePath(branchName)}&path=${this.encodeFilePath(normalizedDirectoryPath)}&recursive=${recursive}&per_page=100`,
       );
 
       const fileContentsMap = new Map<string, string>();
       const contentPromises = tree
-        .filter((item) => item.type === "blob")
+        .filter((item) => item.type === 'blob')
         .map(async (item) => {
           const content = await this.getFileContent(branchName, item.path);
           if (content !== undefined) {
@@ -135,7 +138,7 @@ export class GitlabProvider implements Provider {
               relativePath = item.path.substring(
                 normalizedDirectoryPath.length + 1,
               );
-            } else if (normalizedDirectoryPath === "") {
+            } else if (normalizedDirectoryPath === '') {
               // If normalizedDirectoryPath is empty, it means root, so relative path is full path
               relativePath = item.path;
             }
@@ -147,7 +150,7 @@ export class GitlabProvider implements Provider {
 
       return fileContentsMap;
     } catch (error) {
-      if (error instanceof Error && error.message.includes("404 Not Found")) {
+      if (error instanceof Error && error.message.includes('404 Not Found')) {
         return new Map<string, string>();
       }
       throw error;
@@ -163,7 +166,7 @@ export class GitlabProvider implements Provider {
       Object.entries(changes).map(async ([filePath, content]) => {
         if (content === null) {
           return {
-            action: "delete",
+            action: 'delete',
             file_path: filePath,
           };
         }
@@ -173,17 +176,17 @@ export class GitlabProvider implements Provider {
 
         if (fileExists) {
           return {
-            action: "update",
+            action: 'update',
             file_path: filePath,
             content: content,
-            encoding: "text",
+            encoding: 'text',
           };
         }
         return {
-          action: "create",
+          action: 'create',
           file_path: filePath,
           content: content,
-          encoding: "text",
+          encoding: 'text',
         };
       }),
     );
@@ -192,7 +195,7 @@ export class GitlabProvider implements Provider {
       return;
     }
 
-    await this.request("POST", "/repository/commits", {
+    await this.request('POST', '/repository/commits', {
       branch: branchName,
       commit_message: commitMessage,
       actions: actions,
@@ -206,20 +209,15 @@ export class GitlabProvider implements Provider {
     title: string,
     description?: string,
   ): Promise<string> {
-    interface GitLabMergeRequest {
-      iid: number;
-      web_url: string;
-    }
-
     const existingMRs = await this.request<GitLabMergeRequest[]>(
-      "GET",
+      'GET',
       `/merge_requests?state=opened&source_branch=${this.encodeFilePath(sourceBranch)}&target_branch=${this.encodeFilePath(targetBranch)}`,
     );
 
     if (existingMRs.length > 0) {
       const mrIid = existingMRs[0].iid;
       const updatedMR = await this.request<GitLabMergeRequest>(
-        "PUT",
+        'PUT',
         `/merge_requests/${mrIid}`,
         {
           title: title,
@@ -227,18 +225,17 @@ export class GitlabProvider implements Provider {
         },
       );
       return updatedMR.web_url;
-    } else {
-      const newMR = await this.request<GitLabMergeRequest>(
-        "POST",
-        "/merge_requests",
-        {
-          source_branch: sourceBranch,
-          target_branch: targetBranch,
-          title: title,
-          description: description,
-        },
-      );
-      return newMR.web_url;
     }
+    const newMR = await this.request<GitLabMergeRequest>(
+      'POST',
+      '/merge_requests',
+      {
+        source_branch: sourceBranch,
+        target_branch: targetBranch,
+        title: title,
+        description: description,
+      },
+    );
+    return newMR.web_url;
   }
 }

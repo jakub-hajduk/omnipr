@@ -1,4 +1,4 @@
-import type { OmniPROptions, Provider } from "./shared/types";
+import type { OmniPROptions, Provider } from './shared/types';
 
 export async function omnipr(
   provider: Provider,
@@ -28,7 +28,7 @@ export async function omnipr(
   // 2. Calculate changes
   const changes: Record<string, string | null> = {};
   for (const [filePath, change] of Object.entries(options.changes)) {
-    if (typeof change === "string" || change === null) {
+    if (typeof change === 'string' || change === null) {
       changes[filePath] = change as string;
     } else {
       const existingContent = await provider.getFileContent(
@@ -38,7 +38,7 @@ export async function omnipr(
       changes[filePath] = change({
         exists: existingContent !== undefined,
         path: filePath,
-        contents: existingContent ?? "",
+        contents: existingContent ?? '',
       });
     }
   }

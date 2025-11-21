@@ -1,10 +1,10 @@
-import type { Provider } from "../shared/types";
+import { parseUrl } from "../shared/parse-url";
 import { normalizeDirectoryPath } from "../shared/path-utils";
+import type { Provider } from "../shared/types";
 
 interface BitbucketProviderConfig {
   token: string;
-  projectKey: string;
-  repositorySlug: string;
+  url: string;
 }
 
 interface BitbucketPullRequest {
@@ -18,7 +18,13 @@ export class BitbucketProvider implements Provider {
   public fetch = globalThis.fetch;
 
   constructor(config: BitbucketProviderConfig) {
-    this.baseUrl = `https://api.bitbucket.org/2.0/repositories/${config.projectKey}/${config.repositorySlug}`;
+    const { path } = parseUrl(config.url);
+
+    const [projectKey, repositorySlug] = path
+      .replace(/^\/|\/$/g, "")
+      .split("/");
+
+    this.baseUrl = `https://api.bitbucket.org/2.0/repositories/${projectKey}/${repositorySlug}`;
     this.headers = {
       Authorization: `Bearer ${config.token}`,
       Accept: "application/json",
@@ -93,32 +99,28 @@ export class BitbucketProvider implements Provider {
     branchName: string,
     filePath: string,
   ): Promise<string | undefined> {
-    try {
-      const response = await fetch(
-        `${this.baseUrl}/src/${branchName}/${filePath}`,
-        {
-          headers: this.headers,
-        },
-      );
+    const response = await fetch(
+      `${this.baseUrl}/src/${branchName}/${filePath}`,
+      {
+        headers: this.headers,
+      },
+    );
 
-      if (!response.ok) {
-        if (response.status === 404) {
-          return undefined;
-        }
-        const errorBody = await response.text();
-        throw new Error(
-          `Bitbucket API error: ${response.status} ${response.statusText} - ${errorBody}`,
-        );
+    if (!response.ok) {
+      if (response.status === 404) {
+        return undefined;
       }
-      return response.text();
-    } catch (error) {
-      throw error;
+      const errorBody = await response.text();
+      throw new Error(
+        `Bitbucket API error: ${response.status} ${response.statusText} - ${errorBody}`,
+      );
     }
+    return response.text();
   }
 
   async pull(
     branchName: string,
-    path: string = "./",
+    path = "./",
     recursive = false,
   ): Promise<Map<string, string>> {
     const filesMap = new Map<string, string>();
@@ -223,26 +225,25 @@ export class BitbucketProvider implements Provider {
         },
       );
       return updatedPR.links.html.href;
-    } else {
-      const newPR = await this.request<BitbucketPullRequest>(
-        "POST",
-        "/pullrequests",
-        {
-          title: title,
-          description: description,
-          source: {
-            branch: {
-              name: sourceBranch,
-            },
-          },
-          destination: {
-            branch: {
-              name: targetBranch,
-            },
+    }
+    const newPR = await this.request<BitbucketPullRequest>(
+      "POST",
+      "/pullrequests",
+      {
+        title: title,
+        description: description,
+        source: {
+          branch: {
+            name: sourceBranch,
           },
         },
-      );
-      return newPR.links.html.href;
-    }
+        destination: {
+          branch: {
+            name: targetBranch,
+          },
+        },
+      },
+    );
+    return newPR.links.html.href;
   }
 }
