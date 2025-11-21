@@ -109,7 +109,7 @@ export class GithubProvider implements Provider {
     branchName: string,
     path = './',
     recursive = false,
-  ): Promise<Map<string, string>> {
+  ): Promise<Record<string, string>> {
     try {
       const branchInfo = await this.request<{
         commit: { commit: { tree: { sha: string } } };
@@ -147,11 +147,11 @@ export class GithubProvider implements Provider {
         }
       }
 
-      const fileContentsMap = new Map<string, string>();
+      const fileContentsMap = {};
       const contentPromises = filesToFetch.map(async (file) => {
         const content = await this.getFileContent(branchName, file.fullPath);
         if (content !== undefined) {
-          fileContentsMap.set(file.relativePath, content);
+          fileContentsMap[file.relativePath] = content;
         }
       });
 
@@ -160,7 +160,7 @@ export class GithubProvider implements Provider {
       return fileContentsMap;
     } catch (error) {
       if (error instanceof Error && error.message.includes('404 Not Found')) {
-        return new Map<string, string>();
+        return {};
       }
       throw error;
     }

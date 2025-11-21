@@ -50,7 +50,7 @@ export interface Provider {
     branchName: string,
     path?: string,
     recursive?: boolean,
-  ): Promise<Map<string, string>>;
+  ): Promise<Record<string, string>>;
   commitChanges(
     branchName: string,
     changes: Record<string, string | null>,
@@ -62,4 +62,9 @@ export interface Provider {
     title: string,
     description?: string,
   ): Promise<string>;
+}
+
+export interface OmniPRReturn {
+  pullFiles: (recursive?: boolean) => Promise<Record<string, string>>;
+  createPr: () => Promise<string>;
 }

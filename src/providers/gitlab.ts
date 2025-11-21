@@ -116,7 +116,7 @@ export class GitlabProvider implements Provider {
     branchName: string,
     path = './',
     recursive = false,
-  ): Promise<Map<string, string>> {
+  ): Promise<Record<string, string>> {
     try {
       const normalizedDirectoryPath = normalizeDirectoryPath(path);
       const tree = await this.request<Array<{ path: string; type: string }>>(
@@ -124,7 +124,7 @@ export class GitlabProvider implements Provider {
         `/repository/tree?ref=${this.encodeFilePath(branchName)}&path=${this.encodeFilePath(normalizedDirectoryPath)}&recursive=${recursive}&per_page=100`,
       );
 
-      const fileContentsMap = new Map<string, string>();
+      const fileContentsMap = {};
       const contentPromises = tree
         .filter((item) => item.type === 'blob')
         .map(async (item) => {
@@ -142,7 +142,7 @@ export class GitlabProvider implements Provider {
               // If normalizedDirectoryPath is empty, it means root, so relative path is full path
               relativePath = item.path;
             }
-            fileContentsMap.set(relativePath, content);
+            fileContentsMap[relativePath] = content;
           }
         });
 
@@ -151,7 +151,7 @@ export class GitlabProvider implements Provider {
       return fileContentsMap;
     } catch (error) {
       if (error instanceof Error && error.message.includes('404 Not Found')) {
-        return new Map<string, string>();
+        return {};
       }
       throw error;
     }

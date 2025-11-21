@@ -1,6 +1,6 @@
-import { parseUrl } from "../shared/parse-url";
-import { normalizeDirectoryPath } from "../shared/path-utils";
-import type { Provider } from "../shared/types";
+import { parseUrl } from '../shared/parse-url';
+import { normalizeDirectoryPath } from '../shared/path-utils';
+import type { Provider } from '../shared/types';
 
 interface BitbucketProviderConfig {
   token: string;
@@ -21,13 +21,13 @@ export class BitbucketProvider implements Provider {
     const { path } = parseUrl(config.url);
 
     const [projectKey, repositorySlug] = path
-      .replace(/^\/|\/$/g, "")
-      .split("/");
+      .replace(/^\/|\/$/g, '')
+      .split('/');
 
     this.baseUrl = `https://api.bitbucket.org/2.0/repositories/${projectKey}/${repositorySlug}`;
     this.headers = {
       Authorization: `Bearer ${config.token}`,
-      Accept: "application/json",
+      Accept: 'application/json',
     };
   }
 
@@ -39,7 +39,7 @@ export class BitbucketProvider implements Provider {
   ): Promise<T> {
     const headers = { ...this.headers };
     if (isJson) {
-      headers["Content-Type"] = "application/json";
+      headers['Content-Type'] = 'application/json';
     }
 
     const response = await this.fetch(`${this.baseUrl}${path}`, {
@@ -59,7 +59,7 @@ export class BitbucketProvider implements Provider {
       !isJson ||
       response.status === 204 ||
       (response.status === 200 &&
-        response.headers.get("Content-Length") === "0")
+        response.headers.get('Content-Length') === '0')
     ) {
       return undefined as T;
     }
@@ -70,12 +70,12 @@ export class BitbucketProvider implements Provider {
   async getBranchSha(branchName: string): Promise<string | undefined> {
     try {
       const data = await this.request<{ target: { hash: string } }>(
-        "GET",
+        'GET',
         `/refs/branches/${branchName}`,
       );
       return data.target.hash;
     } catch (error) {
-      if (error instanceof Error && error.message.includes("404 Not Found")) {
+      if (error instanceof Error && error.message.includes('404 Not Found')) {
         return undefined;
       }
       throw error;
@@ -83,7 +83,7 @@ export class BitbucketProvider implements Provider {
   }
 
   async createBranch(branchName: string, sha: string): Promise<void> {
-    await this.request("POST", "/refs/branches", {
+    await this.request('POST', '/refs/branches', {
       name: branchName,
       target: {
         hash: sha,
@@ -92,7 +92,7 @@ export class BitbucketProvider implements Provider {
   }
 
   async deleteBranch(branchName: string): Promise<void> {
-    await this.request("DELETE", `/refs/branches/${branchName}`);
+    await this.request('DELETE', `/refs/branches/${branchName}`);
   }
 
   async getFileContent(
@@ -120,10 +120,10 @@ export class BitbucketProvider implements Provider {
 
   async pull(
     branchName: string,
-    path = "./",
+    path = './',
     recursive = false,
-  ): Promise<Map<string, string>> {
-    const filesMap = new Map<string, string>();
+  ): Promise<Record<string, string>> {
+    const filesMap = {};
     const normalizedDirectoryPath = normalizeDirectoryPath(path);
     let nextUrl: string | undefined =
       `${this.baseUrl}/src/${branchName}?pagelen=100`;
@@ -143,13 +143,13 @@ export class BitbucketProvider implements Provider {
         };
 
         for (const entry of page.values) {
-          if (entry.type === "commit_file") {
+          if (entry.type === 'commit_file') {
             const fullPath = entry.path;
 
             let isMatch = false;
-            let relativePath = "";
+            let relativePath = '';
 
-            if (normalizedDirectoryPath === "") {
+            if (normalizedDirectoryPath === '') {
               isMatch = true;
               relativePath = fullPath;
             } else if (fullPath.startsWith(`${normalizedDirectoryPath}/`)) {
@@ -160,10 +160,10 @@ export class BitbucketProvider implements Provider {
             }
 
             if (isMatch) {
-              if (recursive || !relativePath.includes("/")) {
+              if (recursive || !relativePath.includes('/')) {
                 const content = await this.getFileContent(branchName, fullPath);
                 if (content !== undefined) {
-                  filesMap.set(relativePath, content);
+                  filesMap[relativePath] = content;
                 }
               }
             }
@@ -173,8 +173,8 @@ export class BitbucketProvider implements Provider {
       }
       return filesMap;
     } catch (error) {
-      if (error instanceof Error && error.message.includes("404 Not Found")) {
-        return new Map<string, string>();
+      if (error instanceof Error && error.message.includes('404 Not Found')) {
+        return {};
       }
       throw error;
     }
@@ -186,20 +186,20 @@ export class BitbucketProvider implements Provider {
     commitMessage: string,
   ): Promise<void> {
     const formData = new FormData();
-    formData.append("branch", branchName);
-    formData.append("message", commitMessage);
+    formData.append('branch', branchName);
+    formData.append('message', commitMessage);
 
     for (const [filePath, content] of Object.entries(changes)) {
       if (content === null) {
         // Bitbucket's src endpoint uses the 'files' parameter to indicate which files to delete.
-        formData.append("files", filePath);
+        formData.append('files', filePath);
       } else {
         formData.append(filePath, content);
       }
     }
 
     // The body is FormData, so we pass `false` for the isJson flag.
-    await this.request("POST", "/src", formData, false);
+    await this.request('POST', '/src', formData, false);
   }
 
   async createPullRequest(
@@ -210,14 +210,14 @@ export class BitbucketProvider implements Provider {
   ): Promise<string> {
     const q = `source.branch.name = "${sourceBranch}" AND destination.branch.name = "${targetBranch}" AND state = "OPEN"`;
     const existingPRs = await this.request<{ values: BitbucketPullRequest[] }>(
-      "GET",
+      'GET',
       `/pullrequests?q=${encodeURIComponent(q)}`,
     );
 
     if (existingPRs.values.length > 0) {
       const prId = existingPRs.values[0].id;
       const updatedPR = await this.request<BitbucketPullRequest>(
-        "PUT",
+        'PUT',
         `/pullrequests/${prId}`,
         {
           title: title,
@@ -227,8 +227,8 @@ export class BitbucketProvider implements Provider {
       return updatedPR.links.html.href;
     }
     const newPR = await this.request<BitbucketPullRequest>(
-      "POST",
-      "/pullrequests",
+      'POST',
+      '/pullrequests',
       {
         title: title,
         description: description,
