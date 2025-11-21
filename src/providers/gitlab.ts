@@ -139,7 +139,6 @@ export class GitlabProvider implements Provider {
                 normalizedDirectoryPath.length + 1,
               );
             } else if (normalizedDirectoryPath === '') {
-              // If normalizedDirectoryPath is empty, it means root, so relative path is full path
               relativePath = item.path;
             }
             fileContentsMap[relativePath] = content;

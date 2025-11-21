@@ -41,14 +41,14 @@
         "types": "./dist/index.d.cts"
       }
     },
-    "./pull-request": {
+    "./omnipr": {
       "import": {
-        "default": "./dist/pull-request.js",
-        "types": "./dist/pull-request.d.ts"
+        "default": "./dist/omnipr.js",
+        "types": "./dist/omnipr.d.ts"
       },
       "require": {
-        "default": "./dist/pull-request.cjs",
-        "types": "./dist/pull-request.d.cts"
+        "default": "./dist/omnipr.cjs",
+        "types": "./dist/omnipr.d.cts"
       }
     },
     "./github": {
