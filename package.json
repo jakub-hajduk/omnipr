@@ -2,16 +2,9 @@
   "name": "omnipr",
   "version": "0.0.1",
   "description": "OmniPR creates pull requests across Git providers like GitHub, GitLab, Bitbucket, etc. It’s modular, provider-agnostic, and works in Node.js/browser.",
-  "keywords": [
-    "pull request",
-    "pr",
-    "git",
-    "github",
-    "gitlab",
-    "bitbucket"
-  ],
+  "keywords": ["pull request", "pr", "git", "github", "gitlab", "bitbucket"],
   "scripts": {
-    "build": "pkgroll",
+    "build": "tsdown",
     "check": "biome check",
     "fix": "biome check --fix",
     "release": "pnpm run fix && pnpm run build && changelogen --release --push --publish"
@@ -21,18 +14,11 @@
     "email": "devhajduk@gmail.com"
   },
   "license": "ISC",
-  "dependencies": {
-    "ky": "^1.7.4"
-  },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
-    "@gitbeaker/rest": "^40.4.0",
-    "@octokit/rest": "^21.0.2",
-    "@octokit/types": "^13.6.2",
     "@types/node": "^22.7.4",
-    "bitbucket": "^2.12.0",
     "changelogen": "^0.5.7",
-    "pkgroll": "^2.5.0",
+    "tsdown": "^0.16.6",
     "tsx": "^4.19.1",
     "typescript": "^5.6.2"
   },
@@ -41,61 +27,31 @@
     "url": "https://github.com/jakub-hajduk/omnipr.git"
   },
   "type": "module",
-  "files": [
-    "dist"
-  ],
+  "files": ["dist"],
   "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.cts",
   "exports": {
     ".": {
-      "import": {
-        "default": "./dist/index.js",
-        "types": "./dist/index.d.ts"
-      },
-      "require": {
-        "default": "./dist/index.cjs",
-        "types": "./dist/index.d.cts"
-      }
-    },
-    "./pull-request": {
-      "import": {
-        "default": "./dist/pull-request.js",
-        "types": "./dist/pull-request.d.ts"
-      },
-      "require": {
-        "default": "./dist/pull-request.cjs",
-        "types": "./dist/pull-request.d.cts"
-      }
-    },
-    "./github": {
-      "import": {
-        "default": "./dist/providers/github.js",
-        "types": "./dist/providers/github.d.ts"
-      },
-      "require": {
-        "default": "./dist/providers/github.cjs",
-        "types": "./dist/providers/github.d.cts"
-      }
-    },
-    "./gitlab": {
-      "import": {
-        "default": "./dist/providers/gitlab.js",
-        "types": "./dist/providers/gitlab.d.ts"
-      },
-      "require": {
-        "default": "./dist/providers/gitlab.cjs",
-        "types": "./dist/providers/gitlab.d.cts"
-      }
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
     },
     "./bitbucket": {
-      "import": {
-        "default": "./dist/providers/bitbucket.js",
-        "types": "./dist/providers/bitbucket.d.ts"
-      },
-      "require": {
-        "default": "./dist/providers/bitbucket.cjs",
-        "types": "./dist/providers/bitbucket.d.cts"
-      }
-    }
+      "import": "./dist/bitbucket.mjs",
+      "require": "./dist/bitbucket.cjs"
+    },
+    "./github": {
+      "import": "./dist/github.mjs",
+      "require": "./dist/github.cjs"
+    },
+    "./gitlab": {
+      "import": "./dist/gitlab.mjs",
+      "require": "./dist/gitlab.cjs"
+    },
+    "./omnipr": {
+      "import": "./dist/omnipr.mjs",
+      "require": "./dist/omnipr.cjs"
+    },
+    "./package.json": "./package.json"
   }
 }

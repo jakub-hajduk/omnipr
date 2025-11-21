@@ -1,206 +1,204 @@
-export type Change =
-  | string
-  | ((file: { exists: boolean; path: string; contents: string }) =>
-      | string
-      | null)
-  | null;
+/**
+ * Represents a callback function used to determine file content changes.
+ * This function is invoked for each file specified in the `changes` object when committing.
+ *
+ * @example
+ * // Example: Append a new line to an existing file or create it
+ * (fileInfo) => {
+ *   if (fileInfo.exists) {
+ *     return fileInfo.contents + '\\n// Appended by OmniPR';
+ *   }
+ *   return '// New file created by OmniPR';
+ * }
+ *
+ * @example
+ * // Example: Delete a file if it exists, otherwise do nothing
+ * (fileInfo) => {
+ *   if (fileInfo.exists) {
+ *     return null; // Deletes the file
+ *   }
+ *   return fileInfo.contents; // No change if file doesn't exist
+ * }
+ */
+export type FileChangeCallback = (fileInfo: {
+  exists: boolean;
+  path: string;
+  contents: string;
+}) => string | null;
 
+/**
+ * Represents a change to be applied to a file.
+ * It can be a string (new content), a FileChangeCallback function (dynamic content), or null (delete file).
+ *
+ * @example
+ * // Directly provide new content for a file
+ * 'path/to/file.txt': 'This is the new content.'
+ *
+ * @example
+ * // Use a callback to update content based on existing content
+ * 'path/to/script.js': ({ contents }) => contents + '\\nconsole.log(\\"Updated!\\");'
+ *
+ * @example
+ * // Delete a file
+ * 'path/to/old-file.txt': null
+ */
+export type FileChange = string | FileChangeCallback | null;
+
+/**
+ * Options for creating a pull request.
+ */
 export interface PullRequestOptions {
+  /**
+   * The title of the pull request.
+   */
   title: string;
+  /**
+   * An optional description for the pull request.
+   */
   description?: string;
 }
 
+/**
+ * Options related to source and target branches for the pull request operation.
+ */
 export interface BranchesOptions {
+  /**
+   * If true, the source branch will be deleted and recreated from the target branch's SHA if it already exists.
+   * This ensures a clean slate for the source branch.
+   */
   resetSourceBranchIfExists?: boolean;
+  /**
+   * The name of the source branch from which the changes will be pulled.
+   */
   sourceBranch: string;
+  /**
+   * The name of the target branch into which the changes will be merged.
+   */
   targetBranch: string;
 }
 
-export interface GitProviderReturnType {
-  status: number;
-  message?: string;
-}
-
-export interface TokenProviderOptions {
-  [k: PropertyKey]: any;
-}
-
-export interface PullRequestOptions {
-  title: string;
-  description?: string;
-}
-
+/**
+ * Options for writing changes (committing files) to the repository.
+ */
 export interface WriteChangesOptions {
+  /**
+   * An optional base path within the repository for the changes.
+   * If provided, file paths in `changes` will be relative to this path.
+   */
   path?: string;
-  changes: Record<string, Change>;
+  /**
+   * A record where keys are file paths (relative to `path` if provided) and values are `FileChange` types.
+   * @example
+   * {
+   *   'config.json': '{ "version": "1.0.0" }',
+   *   'src/main.ts': ({ contents }) => contents.replace('old', 'new'),
+   *   'old-feature.js': null, // Deletes the file
+   * }
+   */
+  changes: Record<string, FileChange>;
+  /**
+   * The commit message for the changes.
+   */
   commitMessage: string;
 }
 
-export interface ReadFilesOptions {
-  path?: string;
-  files?: string[];
+/**
+ * Options for providing a custom fetch implementation.
+ */
+export interface FetchOptions {
+  /**
+   * An optional custom `fetch` function to use for HTTP requests.
+   * Useful for testing or integrating with specific environments (e.g., polyfills).
+   */
+  customFetch?: typeof fetch;
 }
 
+/**
+ * The combined options object for the `omnipr` function.
+ */
 export type OmniPROptions = BranchesOptions &
   WriteChangesOptions &
   PullRequestOptions &
-  TokenProviderOptions;
+  FetchOptions;
 
-export interface GitProvider<InitOptions> {
+/**
+ * Defines the contract for a Git provider (e.g., GitHub, GitLab, Bitbucket).
+ * Each provider implementation must adhere to this interface.
+ */
+export interface Provider {
   /**
-   * Initializes the provider by setting up authentication and retrieving any necessary initial information.
-   *
-   * This method prepares the provider for use, allowing for customization through the provided options object.
-   * The exact configuration depends on the specific provider implementation.
-   *
-   * @param {Object} options - Configuration options tailored to the provider.
-   * @param {string} [options.url] - The URL of the provider (if applicable).
-   * @param {string} [options.token] - The authentication token for accessing the provider (if required).
-   * @param {Object} [options.auth] - An instance of a custom authentication class, e.g., `ProviderAuth`.
-   *
-   * @returns {Promise<void>} A promise that resolves when the setup is complete.
-   *
-   * @throws {Error} If the setup process encounters any issues (e.g., invalid credentials, missing fields).
-   *
-   * @example
-   * // Setup using URL and token
-   * await provider.setup({
-   *   url: 'https://github.com/jakub-hajduk/omnipr',
-   *   token: '<TOKEN>'
-   * });
-   *
-   * @example
-   * // Setup using a custom authentication class
-   * await provider.setup({
-   *   auth: new ProviderAuth()
-   * });
+   * The fetch function to be used by the provider for making HTTP requests.
+   * This is typically passed down from `OmniPROptions.customFetch` or uses the global `fetch`.
    */
-  setup(options: InitOptions): Promise<boolean>;
-
+  fetch: typeof fetch;
   /**
-   * Prepares the source and target branches for the operation.
-   *
-   * This method ensures the specified branches are ready for use. If the `resetSourceBranchIfExists` option
-   * is enabled, the source branch will be deleted and recreated to ensure a clean state.
-   *
-   * @param {BranchesOptions} options - Configuration options for preparing branches.
-   * @param {string} options.sourceBranch - The name of the source branch to prepare.
-   * @param {string} options.targetBranch - The name of the target branch to prepare.
-   * @param {boolean} [options.resetSourceBranchIfExists=false] - Whether to delete and recreate the source branch if it already exists.
-   *
-   * @returns {Promise<void>} A promise that resolves when the branches are prepared.
-   *
-   * @throws {Error} If the branch preparation fails (e.g., branch deletion or creation issues).
-   *
-   * @example
-   * // Prepare branches without resetting the source branch
-   * await provider.prepareBranches({
-   *   sourceBranch: 'update-build-settings',
-   *   targetBranch: 'main'
-   * });
-   *
-   * @example
-   * // Prepare branches and reset the source branch if it exists
-   * await provider.prepareBranches({
-   *   sourceBranch: 'update-build-settings',
-   *   targetBranch: 'main',
-   *   resetSourceBranchIfExists: true
-   * });
+   * Retrieves the SHA hash of a given branch.
    */
-  prepareBranches(options: BranchesOptions): Promise<boolean>;
-
+  getBranchSha(branchName: string): Promise<string | undefined>;
   /**
-   * Retrieves file contents from the source branch recursively.
-   *
-   * This method provides flexible options to fetch files based on the specified `path` and `files`.
-   * The behavior varies depending on the combination of options provided:
-   * - If `path` is specified, retrieves all files from the specified path.
-   * - If both `path` and `files` are specified, retrieves only the specified files from the given path.
-   * - If only `files` are specified, retrieves those files from their respective locations.
-   * - If neither `path` nor `files` are provided, retrieves all files from the root directory. _(Note: This can result in a large response, potentially exceeding response limits.)_
-   *
-   * @param {ReadFilesOptions} options - Configuration for reading files from the source branch.
-   * @param {string} [options.path] - The directory path to fetch files from (optional).
-   * @param {string[]} [options.files] - A list of specific files to fetch (optional).
-   *
-   * @returns {Promise<Object>} A promise that resolves with an array of file objects containing their content.
-   *
-   * @example
-   * // Get all files from a specific path
-   * const files = await provider.getFilesFromSourceBranch({
-   *   path: 'some/generated/files'
-   * });
-   * console.log(files);
-   *
-   * @example
-   * // Get specific files by name
-   * const files = await provider.getFilesFromSourceBranch({
-   *   files: ['package.json', 'src/input-data/source.json']
-   * });
-   * console.log(files);
-   *
-   * @example
-   * // Get specific files from a given path
-   * const files = await provider.getFilesFromSourceBranch({
-   *   path: 'src/settings',
-   *   files: ['manifest.yml', 'plugin.yml', 'dependencies.yml']
-   * });
-   * console.log(files);
+   * Creates a new branch pointing to a specific SHA.
    */
-  getFilesFromSourceBranch(
-    options: ReadFilesOptions,
+  createBranch(branchName: string, sha: string): Promise<void>;
+  /**
+   * Deletes a specified branch.
+   */
+  deleteBranch(branchName: string): Promise<void>;
+  /**
+   * Retrieves the content of a specific file from a given branch.
+   */
+  getFileContent(
+    branchName: string,
+    filePath: string,
+  ): Promise<string | undefined>;
+  /**
+   * Pulls all files (or files within a specific path) from a given branch.
+   */
+  pull(
+    branchName: string,
+    path?: string,
+    recursive?: boolean,
   ): Promise<Record<string, string>>;
-
   /**
-   * Writes changes to the repository.
-   *
-   * This method allows you to apply changes to the repository by specifying the files and their content.
-   * It supports writing changes to specific files or directories, providing flexibility for managing repository updates.
-   *
-   * @param {WriteChangesOptions} options - Configuration options for writing changes.
-   * @param {Object} options.changes - An object representing the files to be written. Keys are file paths, and values are the file contents.
-   * @param {string} [options.path] - The base directory for the changes. When specified, file paths in `changes` are relative to this directory (optional).
-   *
-   * @returns {Promise<boolean>} A promise that resolves once the changes are written successfully.
-   *
-   * @example
-   * // Write a single file with its full path
-   * await provider.writeChanges({
-   *   changes: {
-   *     'src/input/data.json': '{version: "0.0.1"}'
-   *   }
-   * });
-   *
-   * @example
-   * // Write changes to a directory using relative paths
-   * await provider.writeChanges({
-   *   path: 'src/input',
-   *   changes: {
-   *     'data.json': '{version: "0.0.1"}'
-   *   }
-   * });
+   * Commits changes to a specified branch.
+   *   (string) or `null` to delete the file.
    */
-  writeChanges(options: WriteChangesOptions): Promise<boolean>;
-
+  commitChanges(
+    branchName: string,
+    changes: Record<string, string | null>,
+    commitMessage: string,
+  ): Promise<void>;
   /**
-   * Creates a pull request for the provider.
-   *
-   * This method initiates a pull request (PR) with the specified title and description.
-   * The exact behavior may depend on the provider implementation, including any default
-   * reviewers or branch policies.
-   *
-   * @param {PullRequestOptions} options - Configuration options for the pull request.
-   * @param {string} options.title - The title of the pull request.
-   * @param {string} [options.description] - The description of the pull request, providing additional context (optional).
-   *
-   * @returns {Promise<boolean>} A promise that resolves when the pull request is successfully created.
+   * Creates a pull request between a source and target branch.
+   */
+  createPullRequest(
+    sourceBranch: string,
+    targetBranch: string,
+    title: string,
+    description?: string,
+  ): Promise<string>;
+}
+
+/**
+ * The return type of the `omnipr` function, providing methods to interact with the prepared PR operation.
+ *
+ */
+export interface OmniPRReturn {
+  /**
+   * Pulls files from the source branch defined in the initial `omnipr` call.
    *
    * @example
-   * // Create a simple pull request with a title and description
-   * await provider.createPullRequest({
-   *   title: 'Settings update',
-   *   description: 'Settings update. PR automatically generated by OmniPR.'
-   * });
+   * const prSetup = omnipr(provider, { ...options });
+   * const files = await prSetup.pullFiles(true); // Pull all files recursively from the source branch
+   * console.log(files);
    */
-  createPullRequest(options: PullRequestOptions): Promise<boolean>;
+  pullFiles: (recursive?: boolean) => Promise<Record<string, string>>;
+  /**
+   * Creates the pull request based on the options provided during the initial `omnipr` call.
+   *
+   * @example
+   * const prSetup = omnipr(provider, { ...options });
+   * const prUrl = await prSetup.createPr();
+   * console.log(`Pull Request URL: ${prUrl}`);
+   */
+  createPr: () => Promise<string>;
 }

@@ -1,264 +1,240 @@
-import type {
-  BranchSchema,
-  RepositoryTreeSchema,
-  SimpleProjectSchema,
-} from '@gitbeaker/rest';
-import type { KyInstance } from 'ky';
-import { normalizePath } from '../shared/normalize-path';
-import { httpClient } from '../shared/request';
-import type {
-  BranchesOptions,
-  GitProvider,
-  PullRequestOptions,
-  ReadFilesOptions,
-  WriteChangesOptions,
-} from '../shared/types';
+import { parseUrl } from '../shared/parse-url';
+import { normalizeDirectoryPath } from '../shared/path-utils';
+import type { Provider } from '../shared/types';
 
-export interface GitlabProviderAuthOptions {
+interface GitlabProviderConfig {
   token: string;
   url: string;
 }
 
-const encodeURL = (path: string) => {
-  return encodeURIComponent(path).replaceAll('.', '%2E');
-};
+interface GitLabMergeRequest {
+  iid: number;
+  web_url: string;
+}
 
-class GitlabProvider implements GitProvider<GitlabProviderAuthOptions> {
-  private httpClient: KyInstance;
-  private sourceBranch: BranchSchema;
-  private targetBranch: BranchSchema;
-  private auth: GitlabProviderAuthOptions;
-  private project: SimpleProjectSchema;
+export class GitlabProvider implements Provider {
+  private readonly baseUrl: string;
+  private readonly headers: HeadersInit;
+  private readonly projectId: string;
+  public fetch: typeof fetch = globalThis.fetch;
 
-  async setup(auth: GitlabProviderAuthOptions) {
-    try {
-      this.auth = auth;
-      const repoUrl = new URL(this.auth.url);
-      const [_user, projectName] = repoUrl.pathname.split('/').splice(1);
+  constructor(config: GitlabProviderConfig) {
+    const { path, domain, protocol } = parseUrl(config.url);
 
-      this.httpClient = httpClient.extend({
-        prefixUrl: `${repoUrl.origin}/api/v4`,
-        headers: {
-          Authorization: `Bearer ${this.auth.token}`,
-        },
-      });
-
-      const projects = await this.httpClient
-        .get<SimpleProjectSchema[]>('projects', {
-          searchParams: {
-            membership: true,
-            simple: true,
-            search: projectName,
-          },
-        })
-        .json();
-
-      this.project = projects.find((project) => project.name === projectName);
-
-      this.httpClient = httpClient.extend({
-        prefixUrl: `${repoUrl.origin}/api/v4/projects/${this.project.id}`,
-        headers: {
-          Authorization: `Bearer ${this.auth.token}`,
-        },
-      });
-
-      return true;
-    } catch {
-      return false;
-    }
+    this.projectId = this.encodeFilePath(path.slice(1));
+    this.baseUrl = `${protocol}://${domain}/api/v4/projects/${this.projectId}`;
+    this.headers = {
+      Authorization: `Bearer ${config.token}`,
+      'Content-Type': 'application/json',
+    };
   }
 
-  private async getBranch(branch: string): Promise<BranchSchema> {
-    try {
-      return await this.httpClient
-        .get<BranchSchema>(`repository/branches/${branch}`)
-        .json();
-    } catch {
-      return;
-    }
-  }
-
-  private async deleteSourceBranch(sourceBranch: string) {
-    try {
-      await this.httpClient
-        .delete(`repository/branches/${sourceBranch}`)
-        .json();
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  private async createSourceBranch(
-    sourceBranch: string,
-  ): Promise<BranchSchema> {
-    try {
-      return await this.httpClient
-        .post('repository/branches', {
-          searchParams: {
-            branch: sourceBranch,
-            ref: this.targetBranch.name,
-          },
-        })
-        .json();
-    } catch (e) {
-      return;
-    }
-  }
-
-  public async prepareBranches(options: BranchesOptions) {
-    try {
-      this.targetBranch = await this.getBranch(options.targetBranch);
-
-      const sourceBranch = await this.getBranch(options.sourceBranch);
-
-      if (sourceBranch && options.resetSourceBranchIfExists) {
-        await this.deleteSourceBranch(options.sourceBranch);
-        this.sourceBranch = await this.createSourceBranch(options.sourceBranch);
-        return true;
-      }
-
-      this.sourceBranch = sourceBranch;
-      if (sourceBranch) return true;
-
-      await this.createSourceBranch(options.sourceBranch);
-      this.sourceBranch = await this.getBranch(options.sourceBranch);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  public async getFilesFromSourceBranch(
-    options?: ReadFilesOptions,
-  ): Promise<Record<string, string>> {
-    let path = '';
-    let filesToPick = options?.files;
-
-    if (options?.path) {
-      path = normalizePath(options.path);
-      filesToPick = options?.files?.map((file) => [path, file].join('/'));
-    }
-
-    const tree = await this.httpClient
-      .get<RepositoryTreeSchema[]>('repository/tree', {
-        searchParams: {
-          path: path,
-          ref: this.sourceBranch.name,
-          recursive: true,
-        },
-      })
-      .json();
-
-    let pickedFiles = tree?.filter((entry) => {
-      return entry.type === 'blob';
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: object,
+    customHeaders?: HeadersInit,
+  ): Promise<T> {
+    const response = await this.fetch(`${this.baseUrl}${path}`, {
+      method,
+      headers: { ...this.headers, ...customHeaders },
+      body: body ? JSON.stringify(body) : undefined,
     });
 
-    if (Array.isArray(filesToPick) && filesToPick.length > 0) {
-      pickedFiles = pickedFiles.filter((entry) =>
-        filesToPick.includes(entry.path),
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(
+        `GitLab API error: ${response.status} ${response.statusText} - ${errorBody}`,
       );
     }
 
-    const out = await Promise.all(
-      pickedFiles.map(async (entry) => {
-        const path = entry.path;
-        const content = await this.httpClient
-          .get(`repository/files/${encodeURL(path)}/raw`, {
-            searchParams: {
-              ref: this.sourceBranch.name,
-            },
-          })
-          .text();
+    if (response.status === 204) {
+      return undefined as T; // No content for 204
+    }
 
-        return [path, content];
+    return response.json() as Promise<T>;
+  }
+
+  // Helper to encode file paths and branch names for GitLab API
+  private encodeFilePath(path: string): string {
+    return encodeURIComponent(path).replace(/\./g, '%2E');
+  }
+
+  async getBranchSha(branchName: string): Promise<string | undefined> {
+    try {
+      const data = await this.request<{ commit: { id: string } }>(
+        'GET',
+        `/repository/branches/${this.encodeFilePath(branchName)}`,
+      );
+      return data.commit.id;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('404 Not Found')) {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
+  async createBranch(branchName: string, sha: string): Promise<void> {
+    await this.request('POST', '/repository/branches', {
+      branch: branchName,
+      ref: sha,
+    });
+  }
+
+  async deleteBranch(branchName: string): Promise<void> {
+    await this.request(
+      'DELETE',
+      `/repository/branches/${this.encodeFilePath(branchName)}`,
+    );
+  }
+
+  async getFileContent(
+    branchName: string,
+    filePath: string,
+  ): Promise<string | undefined> {
+    const response = await fetch(
+      `${this.baseUrl}/repository/files/${this.encodeFilePath(filePath)}/raw?ref=${this.encodeFilePath(branchName)}`,
+      {
+        headers: this.headers,
+      },
+    );
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return undefined;
+      }
+      const errorBody = await response.text();
+      throw new Error(
+        `GitLab API error: ${response.status} ${response.statusText} - ${errorBody}`,
+      );
+    }
+    return response.text();
+  }
+
+  async pull(
+    branchName: string,
+    path = './',
+    recursive = false,
+  ): Promise<Record<string, string>> {
+    try {
+      const normalizedDirectoryPath = normalizeDirectoryPath(path);
+      const tree = await this.request<Array<{ path: string; type: string }>>(
+        'GET',
+        `/repository/tree?ref=${this.encodeFilePath(branchName)}&path=${this.encodeFilePath(normalizedDirectoryPath)}&recursive=${recursive}&per_page=100`,
+      );
+
+      const fileContentsMap: Record<string, string> = {};
+      const contentPromises = tree
+        .filter((item) => item.type === 'blob')
+        .map(async (item) => {
+          const content = await this.getFileContent(branchName, item.path);
+          if (content !== undefined) {
+            let relativePath = item.path;
+            if (
+              normalizedDirectoryPath &&
+              item.path.startsWith(`${normalizedDirectoryPath}/`)
+            ) {
+              relativePath = item.path.substring(
+                normalizedDirectoryPath.length + 1,
+              );
+            } else if (normalizedDirectoryPath === '') {
+              relativePath = item.path;
+            }
+            fileContentsMap[relativePath] = content;
+          }
+        });
+
+      await Promise.all(contentPromises);
+
+      return fileContentsMap;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('404 Not Found')) {
+        return {};
+      }
+      throw error;
+    }
+  }
+
+  async commitChanges(
+    branchName: string,
+    changes: Record<string, string | null>,
+    commitMessage: string,
+  ): Promise<void> {
+    const actions = await Promise.all(
+      Object.entries(changes).map(async ([filePath, content]) => {
+        if (content === null) {
+          return {
+            action: 'delete',
+            file_path: filePath,
+          };
+        }
+
+        const fileExists =
+          (await this.getFileContent(branchName, filePath)) !== undefined;
+
+        if (fileExists) {
+          return {
+            action: 'update',
+            file_path: filePath,
+            content: content,
+            encoding: 'text',
+          };
+        }
+        return {
+          action: 'create',
+          file_path: filePath,
+          content: content,
+          encoding: 'text',
+        };
       }),
     );
 
-    return Object.fromEntries(out);
-  }
+    if (actions.length === 0) {
+      return;
+    }
 
-  public async writeChanges(options: WriteChangesOptions): Promise<boolean> {
-    const existingFiles = await this.getFilesFromSourceBranch({
-      path: options?.path,
-      files: Object.keys(options.changes),
+    await this.request('POST', '/repository/commits', {
+      branch: branchName,
+      commit_message: commitMessage,
+      actions: actions,
+      start_branch: branchName,
     });
-
-    const actions = [];
-
-    for (const [file, content] of Object.entries(options?.changes)) {
-      let fileContent = content;
-
-      if (typeof content === 'function') {
-        fileContent = content({
-          path: file,
-          exists: !!existingFiles[file],
-          contents: existingFiles[file],
-        });
-      }
-
-      let action = 'update';
-
-      if (fileContent === null) {
-        action = 'delete';
-      } else if (!existingFiles[file]) {
-        action = 'create';
-      }
-
-      actions.push({
-        action,
-        file_path: file,
-        content: fileContent,
-      });
-    }
-
-    try {
-      await this.httpClient
-        .post('repository/commits', {
-          json: {
-            branch: this.sourceBranch.name,
-            commit_message: options.commitMessage,
-            actions,
-          },
-        })
-        .json();
-    } catch {
-      return false;
-    }
   }
 
-  async createPullRequest(options: PullRequestOptions): Promise<boolean> {
-    try {
-      await this.httpClient
-        .post('merge_requests', {
-          json: {
-            source_branch: this.sourceBranch.name,
-            target_branch: this.targetBranch.name,
-            title: options.title,
-            description: options.description,
-            allow_collaboration: true,
-          },
-        })
-        .json();
-    } catch (e) {
-      const responseJson = await e.response.json();
-      const message = responseJson.message[0].split(': !');
-      const mrNumber = message[1];
-      await this.httpClient
-        .put(`merge_requests/${mrNumber}`, {
-          json: {
-            source_branch: this.sourceBranch.name,
-            target_branch: this.targetBranch.name,
-            title: options.title,
-            description: options.description,
-            allow_collaboration: true,
-          },
-        })
-        .json();
-    }
+  async createPullRequest(
+    sourceBranch: string,
+    targetBranch: string,
+    title: string,
+    description?: string,
+  ): Promise<string> {
+    const existingMRs = await this.request<GitLabMergeRequest[]>(
+      'GET',
+      `/merge_requests?state=opened&source_branch=${this.encodeFilePath(sourceBranch)}&target_branch=${this.encodeFilePath(targetBranch)}`,
+    );
 
-    return true;
+    if (existingMRs.length > 0) {
+      const mrIid = existingMRs[0].iid;
+      const updatedMR = await this.request<GitLabMergeRequest>(
+        'PUT',
+        `/merge_requests/${mrIid}`,
+        {
+          title: title,
+          description: description,
+        },
+      );
+      return updatedMR.web_url;
+    }
+    const newMR = await this.request<GitLabMergeRequest>(
+      'POST',
+      '/merge_requests',
+      {
+        source_branch: sourceBranch,
+        target_branch: targetBranch,
+        title: title,
+        description: description,
+      },
+    );
+    return newMR.web_url;
   }
 }
-
-export const gitlab = new GitlabProvider();
